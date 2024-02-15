@@ -18,6 +18,7 @@
 	"scripts": {
 		"build": "wireit",
 		"deploy": "wireit",
+		"dev": "wireit",
 		"export": "gcloud run services describe $npm_package_config_service_name --region $npm_package_config_region --format export > service.yaml",
 		"gcp-build": "wireit",
 		"start": "wireit"
@@ -34,16 +35,19 @@
 				"build"
 			]
 		},
+		"dev": {
+			"command": "tsx watch ."
+		},
 		"gcp-build": {
 			"dependencies": [
 				"build"
 			]
 		},
 		"start": {
+			"command": "node dist/src/index.js",
 			"dependencies": [
 				"build"
-			],
-			"command": "node dist/src/index.js"
+			]
 		}
 	}
 }
