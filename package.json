@@ -1,8 +1,49 @@
 {
-	"name": "breadbot",
-	"version": "1.0.0",
+	"config": {
+		"region": "europe-west2",
+		"service_name": "breadbot"
+	},
+	"dependencies": {
+		"discord.js": "^14.14.1",
+		"express": "^4.18.2"
+	},
 	"description": "",
-	"main": "index.js",
+	"devDependencies": {
+		"@types/node": "^20.11.17",
+		"typescript": "^5.3.3",
+		"wireit": "^0.14.4"
+	},
+	"main": "./dist/src/index.js",
+	"name": "breadbot",
 	"scripts": {
+		"build": "wireit",
+		"deploy": "wireit",
+		"export": "gcloud run services describe $npm_package_config_service_name --region $npm_package_config_region --format export > service.yaml",
+		"gcp-build": "wireit",
+		"start": "wireit"
+	},
+	"type": "module",
+	"version": "1.0.0",
+	"wireit": {
+		"build": {
+			"command": "tsc"
+		},
+		"deploy": {
+			"command": "gcloud run deploy --source . --platform managed --region $npm_package_config_region --allow-unauthenticated breadbot",
+			"dependencies": [
+				"build"
+			]
+		},
+		"gcp-build": {
+			"dependencies": [
+				"build"
+			]
+		},
+		"start": {
+			"dependencies": [
+				"build"
+			],
+			"command": "node dist/src/index.js"
+		}
 	}
 }
