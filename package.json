@@ -34,6 +34,7 @@
 		"descibe:service": "gcloud run services describe $npm_package_config_service_name --region $npm_package_config_region --format export > service.yaml",
 		"dev": "wireit",
 		"gcp-build": "wireit",
+		"cloud:build": "gcloud builds submit",
 		"prepare": "ts-patch install && typia patch",
 		"start:js": "wireit",
 		"start:node": "wireit",
