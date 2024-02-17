@@ -178,9 +178,9 @@ client.on(Events.InteractionCreate, async (interaction): Promise<void> => {
 				);
 				await loading.delete();
 
-				// const tempDir = fs.mkdtempSync("breadbot");
-				const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "breadbot"));
-				const jsonFile = path.join(tempDir, `${name}.json`);
+				const prefix = "breadbot";
+				const tempFilename = `${name}.json`;
+				const { jsonFile, tempDir } = mkTempFile(prefix, tempFilename);
 				fs.writeFileSync(jsonFile, JSON.stringify(json, bigIntHandler, "\t"));
 				message = await editMessage(message, {
 					content: [
@@ -244,8 +244,18 @@ client.on(Events.InteractionCreate, async (interaction): Promise<void> => {
 
 client.login(configContent.token);
 
-async function editMessage(message: Message<boolean>, messageContent: { content: string; files: string[]; }) {
-	const payload = new MessagePayload(message.channel, messageContent);
+function mkTempFile(prefix: string, tempFilename: string) {
+	const tempDir = mkTempDir(prefix);
+	const jsonFile = path.join(tempDir, tempFilename);
+	return { jsonFile, tempDir };
+}
+
+function mkTempDir(prefix: string) {
+	return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+}
+
+async function editMessage(message: Message<boolean>, messageContent: MessagePayloadOption) {
+	const payload: MessagePayload = new MessagePayload(message.channel, messageContent);
 	message = await message.edit(payload);
 	return message;
 }
