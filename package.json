@@ -8,36 +8,45 @@
 		"@mermaid-js/mermaid-cli": "^10.8.0",
 		"discord.js": "^14.14.1",
 		"express": "^4.18.2",
+		"mermaid": "^10.8.0",
 		"typia": "^5.4.9"
 	},
 	"description": "",
 	"devDependencies": {
+		"@types/d3": "^7.4.3",
+		"@types/dompurify": "^3.0.5",
 		"@types/express": "^4.17.21",
 		"@types/node": "^20.11.17",
+		"puppeteer": "^22.1.0",
 		"ts-node": "^10.9.2",
 		"ts-patch": "^3.1.2",
 		"tsx": "^4.7.1",
-		"typescript": "5.3.2",
+		"typescript": "^5.3.2",
 		"wireit": "^0.14.4"
 	},
 	"main": "./dist/src/index.js",
 	"name": "breadbot",
+	"packageManager": "yarn@4.1.0",
 	"scripts": {
 		"build": "wireit",
 		"deploy": "wireit",
+		"descibe:build": "gcloud builds describe $npm_package_config_service_name --region $npm_package_config_region --format export > build.yaml",
+		"descibe:service": "gcloud run services describe $npm_package_config_service_name --region $npm_package_config_region --format export > service.yaml",
 		"dev": "wireit",
-		"export": "gcloud run services describe $npm_package_config_service_name --region $npm_package_config_region --format export > service.yaml",
 		"gcp-build": "wireit",
-		"start:node": "wireit",
-		"start:ts": "wireit",
+		"prepare": "ts-patch install && typia patch",
 		"start:js": "wireit",
-		"prepare": "ts-patch install && typia patch"
+		"start:node": "wireit",
+		"start:ts": "wireit"
 	},
 	"type": "module",
 	"version": "1.0.0",
 	"wireit": {
 		"build": {
-			"command": "tsc"
+			"command": "tsc",
+			"output": [
+				"dist"
+			]
 		},
 		"deploy": {
 			"command": "gcloud run deploy --source . --platform managed --region $npm_package_config_region --allow-unauthenticated breadbot",
@@ -59,12 +68,11 @@
 				"build"
 			]
 		},
-		"start:ts": {
-			"command": "node --loader ts-node/esm src/index.ts"
-		},
 		"start:node": {
 			"command": "node --loader ts-node/esm src/index.ts"
+		},
+		"start:ts": {
+			"command": "node --loader ts-node/esm src/index.ts"
 		}
-	},
-	"packageManager": "yarn@4.1.0"
+	}
 }
