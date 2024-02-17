@@ -17,10 +17,15 @@ import {
 	User,
 } from "discord.js";
 import "dotenv/config";
+import express from 'express';
 import fs from "fs";
 import os from "os";
 import path from "path";
 import { is, validate } from "typia";
+
+const app = express();
+let botLoggedIn = false;
+const port = process.env.PORT || 8080;
 
 type Action = (interaction: any) => Promise<void> | void;
 
@@ -69,6 +74,22 @@ const client = new Client({
 		GatewayIntentBits.MessageContent,
 	],
 	partials: [Partials.Channel, Partials.Message],
+});
+
+client.on(Events.ClientReady, (client) => {
+	botLoggedIn = true;
+});
+
+app.get('/healthz', (req, res) => {
+	if (botLoggedIn) {
+		res.status(200).send('Bot is operational');
+	} else {
+		res.status(503).send('Bot is not logged in');
+	}
+});
+
+app.listen(port, () => {
+	console.log(`Server started on port ${port}`);
 });
 
 client.on(Events.ClientReady, (client) => {
