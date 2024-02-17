@@ -180,9 +180,8 @@ client.on(Events.InteractionCreate, async (interaction): Promise<void> => {
 				);
 				await loading.delete();
 
-				const prefix = "breadbot";
 				const tempFilename = `${name}.json`;
-				const { jsonFile, tempDir } = mkTempFile(prefix, tempFilename);
+				const { jsonFile, tempDir } = mkTempFile("breadbot", tempFilename);
 				fs.writeFileSync(jsonFile, JSON.stringify(json, bigIntHandler, "\t"));
 				message = await editMessage(message, {
 					content: [
