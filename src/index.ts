@@ -16,12 +16,22 @@ import {
 	SlashCommandBuilder,
 	User,
 } from "discord.js";
+import "dotenv/config";
 import fs from "fs";
 import os from "os";
 import path from "path";
 import { is, validate } from "typia";
-import configContent from "../.config.json" assert { type: "json" };
+
 type Action = (interaction: any) => Promise<void> | void;
+
+const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID;
+if (!DISCORD_CLIENT_ID) {
+	throw new Error("Missing DISCORD_CLIENT_ID");
+}
+const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
+if (!DISCORD_TOKEN) {
+	throw new Error("Missing DISCORD_TOKEN");
+}
 
 const loadBoardCommand = new SlashCommandBuilder()
 	.setName("load")
@@ -48,11 +58,7 @@ async function setCommand(
 	return result;
 }
 
-await setCommand(
-	configContent.client_id,
-	configContent.token,
-	loadBoardCommand
-);
+await setCommand(DISCORD_CLIENT_ID, DISCORD_TOKEN, loadBoardCommand);
 
 const client = new Client({
 	intents: [
@@ -234,10 +240,7 @@ client.on(Events.InteractionCreate, async (interaction): Promise<void> => {
 				console.log({ tempFile: imageFile });
 
 				message = await editMessage(message, {
-					content: [
-						`<@${userId}>`,
-						boardMetaDataMarkdown,
-					].join("\n"),
+					content: [`<@${userId}>`, boardMetaDataMarkdown].join("\n"),
 					files: [jsonFile, markdownFile, imageFile],
 				});
 			}
@@ -247,7 +250,7 @@ client.on(Events.InteractionCreate, async (interaction): Promise<void> => {
 	}
 });
 
-client.login(configContent.token);
+client.login(DISCORD_TOKEN);
 
 function mkTempFile(prefix: string, tempFilename: string) {
 	const tempDir = mkTempDir(prefix);
@@ -290,7 +293,9 @@ function generateBoardMetadataMarkdown(url: string, graph: GraphDescriptor) {
 	const nodeCount = graph.nodes.length;
 	const edgeCount = graph.edges.length;
 	const kitCount = graph.kits?.length || 0;
-	const graphs: number = graph.graphs ? Object.keys(graph.graphs).length + 1 : 1;
+	const graphs: number = graph.graphs
+		? Object.keys(graph.graphs).length + 1
+		: 1;
 
 	const stats = [
 		"```",
@@ -298,10 +303,9 @@ function generateBoardMetadataMarkdown(url: string, graph: GraphDescriptor) {
 		`edges:  ${edgeCount}`,
 		`kits:   ${kitCount}`,
 		`graphs: ${graphs}`,
-		"```"
+		"```",
 	].join("\n");
 	stringBuilder.push(stats);
-
 
 	return stringBuilder.join("\n");
 }
@@ -337,7 +341,7 @@ async function respondInChannel(
 	return await interaction.channel.send(payload);
 }
 
-function bigIntHandler(key: any, value: { toString: () => any; }) {
+function bigIntHandler(key: any, value: { toString: () => any }) {
 	return typeof value === "bigint" ? value.toString() : value;
 }
 
@@ -389,8 +393,8 @@ function truncateObject(
 				truncateRecursively(
 					value,
 					currentMaxLength -
-					jsonString.length +
-					JSON.stringify(value, bigIntHandler).length,
+						jsonString.length +
+						JSON.stringify(value, bigIntHandler).length,
 					depth + 1
 				);
 			} else {
