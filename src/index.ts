@@ -166,13 +166,15 @@ client.on(Events.InteractionCreate, async (interaction): Promise<void> => {
 					await respond(interaction, message);
 					return;
 				}
+				const { name, extension } = extractFileNameAndExtension(url);
+				const boardMetaDataMarkdown = generateBoardMetadataMarkdown(url, json);
 
 				const loading = await respond(interaction, `Loading ${url}`);
-				const { name, extension } = extractFileNameAndExtension(url);
 				let message: Message = await respondInChannel(
 					interaction,
 					[
-						`<@${userId}> ${url}`,
+						`<@${userId}>`,
+						boardMetaDataMarkdown,
 						"⌛️ `json`",
 						"⌛️ `markdown`",
 						"⌛️ `mermaid`",
@@ -185,7 +187,8 @@ client.on(Events.InteractionCreate, async (interaction): Promise<void> => {
 				fs.writeFileSync(jsonFile, JSON.stringify(json, bigIntHandler, "\t"));
 				message = await editMessage(message, {
 					content: [
-						`<@${userId}> ${url}`,
+						`<@${userId}>`,
+						boardMetaDataMarkdown,
 						"✅ `json` ",
 						"⌛️ `markdown`",
 						"⌛️ `mermaid`",
@@ -198,13 +201,13 @@ client.on(Events.InteractionCreate, async (interaction): Promise<void> => {
 				const mmdFile = path.join(tempDir, `${name}.mmd`);
 				fs.writeFileSync(mmdFile, boardMermaid);
 
-
 				const markdown = [url, "```mermaid", boardMermaid, "```"].join("\n");
 				const markdownFile = path.join(tempDir, `${name}.md`);
 				fs.writeFileSync(markdownFile, markdown);
 				message = await editMessage(message, {
 					content: [
-						`<@${userId}> ${url}`,
+						`<@${userId}>`,
+						boardMetaDataMarkdown,
 						"✅ `json` ",
 						"✅ `markdown`",
 						"⌛️ `mermaid`",
@@ -224,15 +227,16 @@ client.on(Events.InteractionCreate, async (interaction): Promise<void> => {
 				await mermaidCli.run(mmdFile, imageFile, {
 					outputFormat,
 					puppeteerConfig: {
-						headless: "new"
-					}
+						headless: "new",
+					},
 				});
 
 				console.log({ tempFile: imageFile });
 
 				message = await editMessage(message, {
 					content: [
-						`<@${userId}> ${url}`,
+						`<@${userId}>`,
+						boardMetaDataMarkdown,
 					].join("\n"),
 					files: [jsonFile, markdownFile, imageFile],
 				});
@@ -255,10 +259,51 @@ function mkTempDir(prefix: string) {
 	return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 }
 
-async function editMessage(message: Message<boolean>, messageContent: MessagePayloadOption) {
-	const payload: MessagePayload = new MessagePayload(message.channel, messageContent);
+async function editMessage(
+	message: Message<boolean>,
+	messageContent: MessagePayloadOption
+) {
+	const payload: MessagePayload = new MessagePayload(
+		message.channel,
+		messageContent
+	);
 	message = await message.edit(payload);
 	return message;
+}
+
+function generateBoardMetadataMarkdown(url: string, graph: GraphDescriptor) {
+	const { name, extension } = extractFileNameAndExtension(url);
+	const filename = `${name}.${extension}`;
+
+	const stringBuilder: string[] = [];
+
+	stringBuilder.push(`# [${graph.title || filename}](${graph.url || url})`);
+
+	if (graph.description) {
+		stringBuilder.push(`> ${graph.description}`);
+	}
+
+	if (graph.$schema) {
+		stringBuilder.push(`[$chema](${graph.$schema})`);
+	}
+
+	const nodeCount = graph.nodes.length;
+	const edgeCount = graph.edges.length;
+	const kitCount = graph.kits?.length || 0;
+	const graphs: number = graph.graphs ? Object.keys(graph.graphs).length + 1 : 1;
+
+	const stats = [
+		"```",
+		`nodes:  ${nodeCount}`,
+		`edges:  ${edgeCount}`,
+		`kits:   ${kitCount}`,
+		`graphs: ${graphs}`,
+		"```"
+	].join("\n");
+	stringBuilder.push(stats);
+
+
+	return stringBuilder.join("\n");
 }
 
 async function sendDebug(interaction: Interaction, response?: Object) {
@@ -296,7 +341,6 @@ function bigIntHandler(key: any, value: { toString: () => any; }) {
 	return typeof value === "bigint" ? value.toString() : value;
 }
 
-const MAX_MESSAGE_LEN = 2000;
 function truncateObject(
 	obj: any,
 	maxLength: number,
