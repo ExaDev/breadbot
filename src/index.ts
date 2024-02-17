@@ -14,6 +14,7 @@ import {
 	REST,
 	Routes,
 	SlashCommandBuilder,
+	User,
 } from "discord.js";
 import fs from "fs";
 import os from "os";
@@ -136,6 +137,8 @@ client.on(Events.InteractionCreate, async (interaction): Promise<void> => {
 	if (interaction.isChatInputCommand()) {
 		const command = interaction.commandName;
 		const options = interaction.options;
+		const user: User = interaction.user;
+		const userId = user.id;
 
 		if (command === "load") {
 			const url = options.getString("url") || "";
@@ -168,9 +171,8 @@ client.on(Events.InteractionCreate, async (interaction): Promise<void> => {
 				const { name, extension } = extractFileNameAndExtension(url);
 				let message: Message = await respondInChannel(
 					interaction,
-					// `${name}.${extension}`
 					[
-						url,
+						`<@${userId}> ${url}`,
 						"⌛️ `json`",
 						"⌛️ `markdown`",
 						"⌛️ `mermaid`",
@@ -184,7 +186,7 @@ client.on(Events.InteractionCreate, async (interaction): Promise<void> => {
 				fs.writeFileSync(jsonFile, JSON.stringify(json, bigIntHandler, "\t"));
 				message = await editMessage(message, {
 					content: [
-						url,
+						`<@${userId}> ${url}`,
 						"✅ `json` ",
 						"⌛️ `markdown`",
 						"⌛️ `mermaid`",
@@ -203,7 +205,7 @@ client.on(Events.InteractionCreate, async (interaction): Promise<void> => {
 				fs.writeFileSync(markdownFile, markdown);
 				message = await editMessage(message, {
 					content: [
-						url,
+						`<@${userId}> ${url}`,
 						"✅ `json` ",
 						"✅ `markdown`",
 						"⌛️ `mermaid`",
@@ -231,7 +233,7 @@ client.on(Events.InteractionCreate, async (interaction): Promise<void> => {
 
 				message = await editMessage(message, {
 					content: [
-						url
+						`<@${userId}> ${url}`,
 					].join("\n"),
 					files: [jsonFile, markdownFile, imageFile],
 				});
