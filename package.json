@@ -1,6 +1,6 @@
 {
 	"config": {
-		"region": "europe-west2",
+		"region": "us-central1",
 		"service_name": "breadbot"
 	},
 	"dependencies": {
@@ -22,59 +22,25 @@
 		"ts-node": "^10.9.2",
 		"ts-patch": "^3.1.2",
 		"tsx": "^4.7.1",
-		"typescript": "^5.3.2",
-		"wireit": "^0.14.4"
+		"typescript": "^5.3.2"
 	},
 	"main": "./dist/src/index.js",
 	"name": "breadbot",
 	"packageManager": "yarn@4.1.0",
 	"scripts": {
-		"build": "wireit",
-		"deploy": "wireit",
+		"build": "tsc",
+		"cloud:build": "gcloud builds submit",
+		"deploy": "gcloud run deploy --source . --verbosity debug --platform managed --region $npm_package_config_region breadbot",
 		"descibe:build": "gcloud builds describe $npm_package_config_service_name --region $npm_package_config_region --format export > build.yaml",
 		"descibe:service": "gcloud run services describe $npm_package_config_service_name --region $npm_package_config_region --format export > service.yaml",
-		"dev": "wireit",
-		"gcp-build": "wireit",
-		"cloud:build": "gcloud builds submit",
+		"dev": "tsx watch src/index.ts",
+		"gcp-build": "npm run build",
+		"prebuild": "npx -y rimraf dist",
 		"prepare": "ts-patch install && typia patch",
-		"start:js": "wireit",
-		"start:node": "wireit",
-		"start:ts": "wireit"
+		"prestart:js": "npm run build",
+		"start:js": "node dist/src/index.js",
+		"start:ts": "node --loader ts-node/esm src/index.ts"
 	},
 	"type": "module",
-	"version": "1.0.0",
-	"wireit": {
-		"build": {
-			"command": "tsc",
-			"output": [
-				"dist"
-			]
-		},
-		"deploy": {
-			"command": "gcloud run deploy --source . --platform managed --region $npm_package_config_region --allow-unauthenticated breadbot",
-			"dependencies": [
-				"build"
-			]
-		},
-		"dev": {
-			"command": "tsx watch src/index.ts"
-		},
-		"gcp-build": {
-			"dependencies": [
-				"build"
-			]
-		},
-		"start:js": {
-			"command": "node dist/src/index.js",
-			"dependencies": [
-				"build"
-			]
-		},
-		"start:node": {
-			"command": "node --loader ts-node/esm src/index.ts"
-		},
-		"start:ts": {
-			"command": "node --loader ts-node/esm src/index.ts"
-		}
-	}
+	"version": "1.0.0"
 }
