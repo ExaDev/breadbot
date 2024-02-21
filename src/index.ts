@@ -1,4 +1,4 @@
-import { BoardRunner, GraphDescriptor } from "@google-labs/breadboard";
+import { BoardRunner, GraphDescriptor, InputValues, Schema } from "@google-labs/breadboard";
 import * as mermaidCli from "@mermaid-js/mermaid-cli";
 import {
 	ActionRowBuilder,
@@ -13,13 +13,16 @@ import {
 	Message,
 	MessagePayload,
 	MessagePayloadOption,
+	ModalActionRowComponentBuilder,
 	ModalBuilder,
+	ModalSubmitInteraction,
 	Partials,
 	REST,
 	Routes,
 	SlashCommandBuilder,
 	TextChannel,
 	TextInputBuilder,
+	TextInputComponent,
 	TextInputStyle,
 	User,
 } from "discord.js";
@@ -866,9 +869,11 @@ async function runBoardCommandHandler(
 	const options = interaction.options;
 	const user: User = interaction.user;
 	const url = options.getString("url") || "";
-	const reply = await interaction.reply({
-		content: "Processing...",
-	});
+	// Commented out because showing a modal must be the first response to an interaction
+	// https://discordjs.guide/interactions/modals.html#building-and-responding-with-modals:~:text=Showing%20a%20modal%20must%20be%20the%20first%20response%20to%20an%20interaction.%20You%20cannot%20defer()%20or%20deferUpdate()%20then%20show%20a%20modal%20later
+	// const reply = await interaction.reply({
+	// 	content: "Processing...",
+	// }); 
 
 	if (!isValidURL(url)) {
 		const message = `Invalid URL: \`${url}\``;
@@ -877,7 +882,7 @@ async function runBoardCommandHandler(
 			message,
 			interaction,
 		});
-		await reply.delete();
+		// await reply.delete();
 		return;
 	}
 
@@ -888,7 +893,7 @@ async function runBoardCommandHandler(
 			message,
 			interaction,
 		});
-		await reply.delete();
+		// await reply.delete();
 		return;
 	}
 
@@ -902,58 +907,99 @@ async function runBoardCommandHandler(
 			message,
 			interaction,
 		});
-		await reply.delete();
+		// await reply.delete();
 		return;
 	}
 
+	// Testing with https://gist.githubusercontent.com/TinaNikou/946225dc7f364d9823b20e68419f1422/raw/32fe884d998211263e6693b012962ba873125e0e/TestBoard.json
 	const runner = await BoardRunner.fromGraphDescriptor(json);
 	for await (const runResult of runner.run()) {
 		if (runResult.type === "input") {
-			// await interaction.followUp({
-			// 	content: JSON.stringify(runResult.inputs, null, 2)
-			// });
-			// const invocationId = runResult.invocationId.toString() + nodeid
 			const invocationId = runResult.invocationId.toString()
 			const modal = new ModalBuilder()
 				.setCustomId(invocationId)
 				.setTitle("Inputs");
 
-			// const inputAction =
-			// 	new ActionRowBuilder<TextInputBuilder>().addComponents(
-			// 		new TextInputBuilder()
-			// 			.setCustomId(invocationId)
-			// 			.setLabel(JSON.stringify(runResult.inputs, null, 2))
-			// 			.setStyle(TextInputStyle.Paragraph)
-			// 			.setRequired(true)
-			// 	);
-			// modal.addComponents(inputAction);
+			const schema = runResult.inputArguments["schema"] as Schema
+			
+			const components = Array<TextInputBuilder>()
+			
+			for (const key in schema.properties) {
+				console.log("key", key);
+				const component = new TextInputBuilder()
+					.setCustomId(key)
+					.setLabel(key)
+					.setStyle(TextInputStyle.Short)
+					.setRequired(true)
+				components.push(component)
+			}
 
-			// const inputData = await interaction
-			// 	.showModal(modal)
-			// 	.then(async (message) => {
-			// 		// client.on(Events.InteractionCreate, async interaction => {
-			// 		// 	if (!interaction.isModalSubmit()) return;
-			// 		// 	if (interaction.customId === 'myModal') {
-			// 		// 		await interaction.reply({ content: 'Your submission was received successfully!' });
-			// 		// 	}
-			// 		// });
+			const actionRows = Array<ActionRowBuilder<TextInputBuilder>>()
 
-			// 		// create a promise to be resolved when the modal is submitted
-			// 		const promise = new Promise((resolve) => {
-			// 			client.on(Events.InteractionCreate, async (interaction) => {
-			// 				if (
-			// 					interaction.isModalSubmit() &&
-			// 					interaction.customId === invocationId
-			// 				) {
-			// 					resolve(interaction);
-			// 				}
-			// 			});
-			// 		});
-			// 		// wait for the modal to be submitted
-			// 		const modalSubmit = await promise;
-			// 		console.log({ modalSubmit });
-			// 		// runResult.inputs = modalSubmit.values;
-			// 	});
+			components.forEach((element) => {
+				actionRows.push(new ActionRowBuilder<ModalActionRowComponentBuilder>().addComponents(element))
+			})
+
+			actionRows.forEach((actionRow) => {
+				modal.addComponents(actionRow);
+			})
+
+			const inputData = await interaction
+				.showModal(modal)
+				.then(async (message) => {
+					// create a promise to be resolved when the modal is submitted
+					const promise = new Promise<ModalSubmitInteraction>((resolve) => {
+						client.on(Events.InteractionCreate, async (interaction) => {
+							if (
+								interaction.isModalSubmit() &&
+								interaction.customId === invocationId
+							) {
+								await interaction.reply({ content: 'Your submission was received successfully!' }); // does there need to be a reply so that the modal can close?
+								resolve(interaction);
+							}
+						});
+					});
+					// wait for the modal to be submitted
+					const modalSubmit = await promise;
+					console.log({ modalSubmit });
+
+					const modalValuesFromFields: InputValues = {}
+
+					const modalFields: Array<string>= Array<string>()
+
+					modalSubmit.fields.fields.forEach((textInput: TextInputComponent, field: string) => {
+						modalFields.push(field)
+					});
+
+					modalFields.forEach(field => {
+						console.log(`Field '${field}'`)
+						const textInputValue = modalSubmit.fields.getTextInputValue(field)
+
+						console.log(`Value '${textInputValue}'`)
+						modalValuesFromFields[field] = textInputValue
+					});
+
+					console.log("modalValuesFromFields: " + JSON.stringify(modalValuesFromFields, null, 2))
+					
+					runResult.inputs = modalValuesFromFields;
+
+				});
+		} else if (runResult.type === "output") {
+			// TODO output handling
+			
+			if (runResult.node.id === "outputOne") {
+				console.log("outputOne", JSON.stringify(runResult.outputs, null, 2));
+
+				respondInChannel(interaction, JSON.stringify(runResult.outputs.outputMessageOne, null, 2))
+				respondInChannel(interaction, toJsonCodeFence(runResult.outputs))
+
+			} else if (runResult.node.id === "outputTwo") {
+				console.log("outputTwo", JSON.stringify(runResult.outputs, null, 2));
+
+				respondInChannel(interaction, JSON.stringify(runResult.outputs.outputMessageTwo, null, 2))
+				respondInChannel(interaction, toJsonCodeFence(runResult.outputs))
+
+			}
 		}
 	}
 }
