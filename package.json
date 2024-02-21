@@ -4,46 +4,44 @@
 		"service_name": "breadbot"
 	},
 	"dependencies": {
-		"@google-labs/breadboard": "^0.11.0",
+		"@google-labs/breadboard": "^0.10.1",
 		"@mermaid-js/mermaid-cli": "^10.8.0",
-		"@puppeteer/browsers": "^2.0.1",
 		"discord.js": "^14.14.1",
-		"dotenv": "^16.4.5",
+		"dotenv": "^16.4.4",
 		"express": "^4.18.2",
 		"mermaid": "^10.8.0",
-		"puppeteer": "^22.1.0",
-		"typia": "^5.4.10"
+		"typia": "^5.4.9"
 	},
 	"description": "",
 	"devDependencies": {
 		"@types/d3": "^7.4.3",
 		"@types/dompurify": "^3.0.5",
 		"@types/express": "^4.17.21",
-		"@types/node": "^20.11.19",
+		"@types/node": "^20.11.17",
+		"nodemon": "^3.0.3",
+		"puppeteer": "^22.1.0",
 		"ts-node": "^10.9.2",
 		"ts-patch": "^3.1.2",
 		"tsx": "^4.7.1",
-		"typescript": "^5.3.3"
+		"typescript": "^5.3.2"
 	},
-	"main": "./dist/index.js",
+	"main": "./dist/src/index.js",
 	"name": "breadbot",
 	"packageManager": "yarn@4.1.0",
 	"scripts": {
 		"build": "tsc",
 		"cloud:build": "gcloud builds submit",
-		"deploy": "gcloud run deploy --source . --port=8080 --verbosity debug --platform managed --region $npm_package_config_region --allow-unauthenticated breadbot",
+		"deploy": "gcloud run deploy --source . --verbosity debug --platform managed --region $npm_package_config_region breadbot",
 		"descibe:build": "gcloud builds describe $npm_package_config_service_name --region $npm_package_config_region --format export > build.yaml",
 		"descibe:service": "gcloud run services describe $npm_package_config_service_name --region $npm_package_config_region --format export > service.yaml",
 		"dev": "tsx watch src/index.ts",
 		"gcp-build": "npm run build",
-		"local:dev": "gcloud beta code dev --dockerfile=Dockerfile",
 		"prebuild": "npx -y rimraf dist",
 		"prepare": "ts-patch install && typia patch",
 		"prestart:js": "npm run build",
-		"start": "node dist/index.js",
+		"start:js": "node dist/src/index.js",
 		"start:ts": "node --loader ts-node/esm src/index.ts",
-		"build:docker": "docker build -t breadbot .",
-		"test:docker": "npm run build:docker && docker run --env-file .env -it breadbot"
+		"start:ts:watch": "nodemon --watch 'src/**/*.ts' --exec 'node --loader ts-node/esm src/index.ts'"
 	},
 	"type": "module",
 	"version": "1.0.0"

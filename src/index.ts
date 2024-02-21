@@ -1,6 +1,9 @@
 import { BoardRunner, GraphDescriptor } from "@google-labs/breadboard";
 import * as mermaidCli from "@mermaid-js/mermaid-cli";
 import {
+	ActionRowBuilder,
+	ChannelType,
+	ChatInputCommandInteraction,
 	Client,
 	Events,
 	GatewayIntentBits,
@@ -10,24 +13,36 @@ import {
 	Message,
 	MessagePayload,
 	MessagePayloadOption,
+	ModalBuilder,
 	Partials,
 	REST,
 	Routes,
 	SlashCommandBuilder,
+	TextChannel,
+	TextInputBuilder,
+	TextInputStyle,
 	User,
 } from "discord.js";
 import "dotenv/config";
-import express from 'express';
+import express from "express";
 import fs from "fs";
 import os from "os";
 import path from "path";
+import { PuppeteerLaunchOptions } from "puppeteer";
 import { is, validate } from "typia";
-
 const app = express();
-let botLoggedIn = false;
-const port = process.env.PORT || 8080;
+let botReady = false;
+const PORT = process.env.PORT || 8080;
 
-type Action = (interaction: any) => Promise<void> | void;
+const instanceName = process.env.K_REVISION || os.hostname();
+
+// puppeteer.defaultProduct()
+// const revision = require('puppeteer/package').puppeteer.chromium_revision;
+
+// Downloader.createDefault().downloadRevision('win64', revision, () => undefined)
+// 	.then(() => { console.log('Done!'); })
+// 	.catch(err => { console.log('Error', err); });
+
 
 const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID;
 if (!DISCORD_CLIENT_ID) {
@@ -37,33 +52,8 @@ const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 if (!DISCORD_TOKEN) {
 	throw new Error("Missing DISCORD_TOKEN");
 }
-
-const loadBoardCommand = new SlashCommandBuilder()
-	.setName("load")
-	.setDescription("Loads a board from a url")
-	.addStringOption((option) =>
-		option
-			.setName("url")
-			.setDescription("The url of the board")
-			.setRequired(true)
-	);
-
-async function setCommand(
-	client_id: string,
-	token: string,
-	command: Omit<SlashCommandBuilder, "addSubcommand" | "addSubcommandGroup">
-) {
-	const commandData = command.toJSON();
-	const result = await new REST()
-		.setToken(token)
-		.put(Routes.applicationCommands(client_id), {
-			body: [commandData],
-		});
-	console.log({ result });
-	return result;
-}
-
-await setCommand(DISCORD_CLIENT_ID, DISCORD_TOKEN, loadBoardCommand);
+const HEARTBEAT_SERVER = process.env.HEARTBEAT_SERVER;
+const HEARTBEAT_CHANNEL = process.env.HEARTBEAT_CHANNEL;
 
 const client = new Client({
 	intents: [
@@ -76,35 +66,192 @@ const client = new Client({
 	partials: [Partials.Channel, Partials.Message],
 });
 
-client.on(Events.ClientReady, (client) => {
-	botLoggedIn = true;
-});
-
-app.get('/healthz', (req, res) => {
-	if (botLoggedIn) {
-		res.status(200).send('Bot is operational');
+app.get("/healthz", (req, res) => {
+	if (client.isReady()) {
+		res.status(200).send("BreadBot is Go");
 	} else {
-		res.status(503).send('Bot is not logged in');
+		res.status(500).send("Bot not ready");
 	}
 });
 
-app.listen(port, () => {
-	console.log(`Server started on port ${port}`);
+app.get("/", (req, res) => {
+	if (client.isReady()) {
+		res.status(200).send("BreadBot is Go");
+	} else {
+		res.status(500).send("Bot not ready");
+	}
 });
 
+app.get("/start", (req, res) => {
+	if (botReady) {
+		res.status(200).send("Ready");
+	} else {
+		res.status(500).send("Startup in progress");
+	}
+});
+
+
+const loadBoardCommand = new SlashCommandBuilder()
+	.setName("load")
+	.setDescription("Loads a board from a url")
+	.addStringOption((option) =>
+		option
+			.setName("url")
+			.setDescription("The url of the board")
+			.setRequired(true)
+	);
+
+type SlashCommandDefinition = Omit<SlashCommandBuilder, "addSubcommand" | "addSubcommandGroup">
+type Action = (interaction: SlashCommandDefinition) => Promise<void> | void;
+type CommandAndHandler<T> ={
+	command: SlashCommandDefinition
+	handler: Action
+}
+
+
+async function setCommand(
+	client_id: string,
+	token: string,
+	commands: Omit<SlashCommandBuilder, "addSubcommand" | "addSubcommandGroup">[]
+) {
+	const result = await new REST()
+		.setToken(token)
+		// .put(Routes.applicationCommand(client_id) {
+		.put(Routes.applicationCommands(client_id), {
+			body: commands.map((command) => command.toJSON()),
+		});
+
+
+	// const results = commands.map(async (command) => {
+	// 	const result = await new REST()
+	// 		.setToken(token)
+	// 		.patch(Routes.applicationCommand(client_id, command.name), {
+	// 			body: command.toJSON(),
+	// 		});
+	// 	return result;
+	// })
+	// console.log({ results });
+	// return results;
+}
+
+await setCommand(DISCORD_CLIENT_ID, DISCORD_TOKEN, [
+	loadBoardCommand,
+	new SlashCommandBuilder()
+		.setName("run")
+		.setDescription("Runs a board from a URL")
+		.addStringOption((option) =>
+			option
+				.setName("url")
+				.setDescription("The url of the board")
+				.setRequired(true)
+		),
+]);
+
 client.on(Events.ClientReady, (client) => {
+	botReady = true;
 	console.log("Ready");
 	client.guilds.cache.forEach((guild: Guild) => {
-		console.debug("----");
-		guild.channels.cache.forEach((channel: GuildBasedChannel): void => {
-			console.debug(guild.name, "-", channel.name);
-		});
+		// print name of server and number of channels
+		console.log(guild.name, ":", guild.channels.cache.size, "channels");
+		// console.debug("----");
+		guild.channels.cache.forEach(
+			async (channel: GuildBasedChannel): Promise<void> => {
+				// console.debug(guild.name, "-", channel.name);
+				if (
+					guild.name === HEARTBEAT_SERVER &&
+					channel.name === HEARTBEAT_CHANNEL &&
+					channel.type === ChannelType.GuildText
+				) {
+					await channel.send(
+						[
+							"```",
+							`BreadBot ready at ${new Date().toISOString()}`,
+							`Running on ${os.hostname()}`,
+							process.env.K_SERVICE
+								? `K_SERVICE:       ${process.env.K_SERVICE}`
+								: undefined,
+							process.env.K_REVISION
+								? `K_REVISION:      ${process.env.K_REVISION}`
+								: undefined,
+							process.env.K_CONFIGURATION
+								? `K_CONFIGURATION: ${process.env.K_CONFIGURATION}`
+								: undefined,
+							"```",
+						].join("\n")
+					);
+					await startupTest(channel);
+	// await puppeteer.createBrowserFetcher().download(puppeteerBrowsers.ChromeReleaseChannel.STABLE, (progress) => {
+	// await puppeteer.createBrowserFetcher({
+	// 	product: "chrome"
+	// }).download("latest", (progress) => {
+	// 	console.debug(progress);
+	// });
+
+					// testPuppeteer
+					// const testMessage = await channel.send("Downloading chrome");
+					// await puppeteerBrowsers.install({
+					// 	cacheDir: path.join(os.tmpdir(), "puppeteer"),
+					// 	browser: puppeteerBrowsers.Browser.CHROME,
+					// 	buildId: "121.0.6167.184",
+					// 	unpack: true,
+					// 	platform: puppeteerBrowsers.BrowserPlatform.MAC_ARM,
+					// 	downloadProgressCallback: (progress) => {
+					// 		console.debug(progress);
+					// 	}
+					// }).then((installed) => {
+					// 	console.log({ puppeteerBrowsers: { installed } });
+					// }).catch((error: any) => {
+					// 	console.error({ puppeteerBrowsers: { error } });
+					// });
+
+					// 	// })
+					// 	// await puppeteer.createBrowserFetcher().download(puppeteerBrowsers.ChromeReleaseChannel.STABLE).then(async (download) => {
+					// 	const message = JSON.stringify({
+					// 		message: "Downloaded chrome",
+					// 		download,
+					// 	}, null, 2);
+					// 	console.debug(message);
+					// 	await testMessage.edit(["```", message, "```"].join("\n"));
+					// }).catch(async (error: any) => {
+					// 	const message = JSON.stringify({
+					// 		message: "Failed to download chrome",
+					// 		error,
+					// 	}, null, 2);
+					// 	console.error(message);
+					// 	await testMessage.edit(["```", message, "```"].join("\n"));
+					// });
+
+					// const puppeteerLaunchMessage = await channel.send("Launching puppeteer");
+					// await puppeteer.launch({
+					// 	headless: "new",
+					// }).then(async (browser) => {
+					// 	const message = JSON.stringify({
+					// 		message: "Launched puppeteer",
+					// 		browser,
+					// 	}, null, 2);
+					// 	console.debug(message);
+					// 	await puppeteerLaunchMessage.edit(["```", message, "```"].join("\n"));
+					// 	// await browser.close();
+					// }).catch(async (error: any) => {
+					// 	const message = JSON.stringify({
+					// 		message: "Failed to launch puppeteer",
+					// 		error,
+					// 	}, null, 2);
+					// 	console.error(message);
+					// 	await puppeteerLaunchMessage.edit(["```", message, "```"].join("\n"));
+					// })
+				}
+			}
+		);
 	});
 });
 
 client.on(Events.MessageCreate, async (message): Promise<void> => {
 	console.log({ message });
 });
+
+type OutputExtension = "md" | "markdown" | "svg" | "png" | "pdf";
+type MermaidOutput = `${string}.${OutputExtension}`;
 
 function isValidURL(url: string): boolean {
 	try {
@@ -139,139 +286,180 @@ function extractFileNameAndExtension(url: string): {
 	return { name, extension };
 }
 
+async function executeLoadBoardCommand(
+	interaction: ChatInputCommandInteraction
+): Promise<void> {
+	const command = interaction.commandName;
+	const options = interaction.options;
+	const user: User = interaction.user;
+	const userId = user.id;
+	let response = await interaction.reply("Checking...");
+	const url = options.getString("url") || "";
+	if (!isValidURL(url)) {
+		const message = `Invalid URL: \`${url}\``;
+		await respond(interaction, message);
+		console.warn({
+			message,
+			interaction,
+		});
+		return;
+	}
+	if (!isJsonUrl(url)) {
+		const message = `That URL does not end with .json: \`${url}\``;
+		await respond(interaction, message);
+		console.warn({ interaction, message });
+		return;
+	}
+	let json: Object;
+	try {
+		json = await (await fetch(url)).json();
+	} catch (error: any) {
+		const message = [
+			`I couldn't load that ${url}`,
+			toJsonCodeFence(error.message),
+		].join("\n");
+		await respond(interaction, message);
+		console.warn({ interaction, error });
+		return;
+	}
+
+	if (!isBGL(json)) {
+		const message = `Uh oh, that doesn't look like a board:\n${url}`;
+		await respond(interaction, message);
+		console.warn({ interaction, message });
+		return;
+	}
+	await response.edit(`Loading ${url}`);
+
+	const { name, extension } = extractFileNameAndExtension(url);
+	const boardMetaDataMarkdown = generateBoardMetadataMarkdown(url, json);
+
+	let message: Message = await respondInChannel(
+		interaction,
+		[
+			boardMetaDataMarkdown,
+			"⌛️ `json`",
+			"⌛️ `markdown`",
+			"⌛️ `mermaid`",
+			`<@${userId}>`,
+			`running on ${instanceName}`,
+		].join("\n")
+	);
+
+	const tempFilename = `${name}.json`;
+	const { jsonFile, tempDir } = mkTempFile("breadbot", tempFilename);
+	fs.writeFileSync(jsonFile, JSON.stringify(json, bigIntHandler, "\t"));
+	message = await editMessage(message, {
+		content: [
+			boardMetaDataMarkdown,
+			"✅ `json` ",
+			"⌛️ `markdown`",
+			"⌛️ `mermaid`",
+			`<@${userId}>`,
+			`running on ${instanceName}`,
+		].join("\n"),
+		files: [jsonFile],
+	});
+
+	const runner = await BoardRunner.fromGraphDescriptor(json);
+	const boardMermaid = runner.mermaid();
+	const mmdFile = path.join(tempDir, `${name}.mmd`);
+	fs.writeFileSync(mmdFile, boardMermaid);
+
+	const markdown = [url, "```mermaid", boardMermaid, "```"].join("\n");
+	const markdownFile = path.join(tempDir, `${name}.md`);
+	fs.writeFileSync(markdownFile, markdown);
+	message = await editMessage(message, {
+		content: [
+			boardMetaDataMarkdown,
+			"✅ `json` ",
+			"✅ `markdown`",
+			"⌛️ `mermaid`",
+			`<@${userId}>`,
+			`running on ${instanceName}`,
+		].join("\n"),
+		files: [jsonFile, markdownFile],
+	});
+
+	const outputFormat: OutputExtension = "png";
+	const imageFile: MermaidOutput = path.join(
+		tempDir,
+		`${name}.${outputFormat}`
+	) as MermaidOutput;
+	try {
+		const timeStarted = Date.now();
+		await mermaidCli.run(mmdFile, imageFile, {
+			outputFormat,
+			puppeteerConfig: {
+				headless: true,
+				args: [
+					"--no-sandbox",
+					// '--disable-setuid-sandbox',
+					"--disable-dev-shm-usage",
+					// '--disable-gpu',
+				],
+				timeout: minutesToMs(5),
+				executablePath: "/usr/bin/chromium-browser",
+			} satisfies PuppeteerLaunchOptions,
+		});
+		const timeElapsed = Date.now() - timeStarted;
+
+		console.log({ tempFile: imageFile });
+
+		message = await editMessage(message, {
+			content: [
+				boardMetaDataMarkdown,
+				`<@${userId}>`,
+				`running on ${instanceName}`,
+				`rendered in ${timeElapsed / 1000}S (${timeElapsed}ms)`,
+			].join("\n"),
+			files: [jsonFile, markdownFile, imageFile],
+		});
+	} catch (error: any) {
+		message = await editMessage(message, {
+			content: [
+				`<@${userId}>`,
+				boardMetaDataMarkdown,
+				"✅ `json` ",
+				"✅ `markdown`",
+				"❌ `mermaid`",
+				`running on ${instanceName}`,
+				"```json",
+				JSON.stringify(
+					{
+						error,
+					},
+					null,
+					"\t"
+				),
+				"```",
+			].join("\n"),
+			files: [jsonFile, markdownFile],
+		});
+	}
+}
+
 client.on(Events.InteractionCreate, async (interaction): Promise<void> => {
+	// ignore messages from bot itself
+	if (interaction.user.id === client.user?.id) {
+		console.debug({
+			ignored: interaction
+		});
+		return;
+	}
+
 	console.log({ interaction });
-	const debug = {
-		isAnySelectMenu: interaction.isAnySelectMenu(),
-		isAutocomplete: interaction.isAutocomplete(),
-		isButton: interaction.isButton(),
-		isChannelSelectMenu: interaction.isChannelSelectMenu(),
-		isChatInputCommand: interaction.isChatInputCommand(),
-		isCommand: interaction.isCommand(),
-		isContextMenuCommand: interaction.isContextMenuCommand(),
-		isMentionableSelectMenu: interaction.isMentionableSelectMenu(),
-		isMessageComponent: interaction.isMessageComponent(),
-		isMessageContextMenuCommand: interaction.isMessageContextMenuCommand(),
-		isModalSubmit: interaction.isModalSubmit(),
-		isRepliable: interaction.isRepliable(),
-		isRoleSelectMenu: interaction.isRoleSelectMenu(),
-		isStringSelectMenu: interaction.isStringSelectMenu(),
-		isUserContextMenuCommand: interaction.isUserContextMenuCommand(),
-		isUserSelectMenu: interaction.isUserSelectMenu(),
-	};
-	console.debug({ debug });
 
 	if (interaction.isChatInputCommand()) {
-		const command = interaction.commandName;
-		const options = interaction.options;
-		const user: User = interaction.user;
-		const userId = user.id;
-
-		if (command === "load") {
-			const url = options.getString("url") || "";
-			if (!isValidURL(url)) {
-				const message = `Invalid URL: \`${url}\``;
-				await respond(interaction, message);
-			} else if (!isJsonUrl(url)) {
-				const message = `That URL does not end with .json: \`${url}\``;
-				await respond(interaction, message);
-			} else {
-				let json: Object;
-				try {
-					json = await (await fetch(url)).json();
-				} catch (error: any) {
-					const message = [
-						`I couldn't load that ${url}`,
-						toJsonCodeFence(error.message),
-					].join("\n");
-					await respond(interaction, message);
-					return;
-				}
-
-				if (!isGBL(json)) {
-					const message = `Uh oh, that doesn't look like a board:\n${url}`;
-					await respond(interaction, message);
-					return;
-				}
-				const { name, extension } = extractFileNameAndExtension(url);
-				const boardMetaDataMarkdown = generateBoardMetadataMarkdown(url, json);
-
-				const loading = await respond(interaction, `Loading ${url}`);
-				let message: Message = await respondInChannel(
-					interaction,
-					[
-						`<@${userId}>`,
-						boardMetaDataMarkdown,
-						"⌛️ `json`",
-						"⌛️ `markdown`",
-						"⌛️ `mermaid`",
-					].join("\n")
-				);
-				await loading.delete();
-
-				const tempFilename = `${name}.json`;
-				const { jsonFile, tempDir } = mkTempFile("breadbot", tempFilename);
-				fs.writeFileSync(jsonFile, JSON.stringify(json, bigIntHandler, "\t"));
-				message = await editMessage(message, {
-					content: [
-						`<@${userId}>`,
-						boardMetaDataMarkdown,
-						"✅ `json` ",
-						"⌛️ `markdown`",
-						"⌛️ `mermaid`",
-					].join("\n"),
-					files: [jsonFile],
-				});
-
-				const runner = await BoardRunner.fromGraphDescriptor(json);
-				const boardMermaid = runner.mermaid();
-				const mmdFile = path.join(tempDir, `${name}.mmd`);
-				fs.writeFileSync(mmdFile, boardMermaid);
-
-				const markdown = [url, "```mermaid", boardMermaid, "```"].join("\n");
-				const markdownFile = path.join(tempDir, `${name}.md`);
-				fs.writeFileSync(markdownFile, markdown);
-				message = await editMessage(message, {
-					content: [
-						`<@${userId}>`,
-						boardMetaDataMarkdown,
-						"✅ `json` ",
-						"✅ `markdown`",
-						"⌛️ `mermaid`",
-					].join("\n"),
-					files: [jsonFile, markdownFile],
-				});
-
-				type OutputExtension = "md" | "markdown" | "svg" | "png" | "pdf";
-				type MermaidOutput = `${string}.${OutputExtension}`;
-
-				const outputFormat: OutputExtension = "png";
-				const imageFile: MermaidOutput = path.join(
-					tempDir,
-					`${name}.${outputFormat}`
-				) as MermaidOutput;
-
-				await mermaidCli.run(mmdFile, imageFile, {
-					outputFormat,
-					puppeteerConfig: {
-						headless: "new",
-					},
-				});
-
-				console.log({ tempFile: imageFile });
-
-				message = await editMessage(message, {
-					content: [`<@${userId}>`, boardMetaDataMarkdown].join("\n"),
-					files: [jsonFile, markdownFile, imageFile],
-				});
-			}
+		if (interaction.commandName === "load") {
+			await executeLoadBoardCommand(interaction);
+		} else if (interaction.commandName === "run") {
+			await runBoardCommandHandler(interaction);
 		}
 	} else {
-		await sendDebug(interaction, { debug });
+		// await sendDebug(interaction, { debug });
 	}
 });
-
-client.login(DISCORD_TOKEN);
 
 function mkTempFile(prefix: string, tempFilename: string) {
 	const tempDir = mkTempDir(prefix);
@@ -339,9 +527,13 @@ async function sendDebug(interaction: Interaction, response?: Object) {
 }
 
 async function respond(interaction: Interaction, message: string) {
-	if (interaction.isRepliable()) {
-		return await interaction.reply(message);
-	} else {
+	try {
+		if (interaction.isRepliable()) {
+			return await interaction.reply(message);
+		} else {
+			return await respondInChannel(interaction, message);
+		}
+	} catch (error: any) {
 		return await respondInChannel(interaction, message);
 	}
 }
@@ -457,11 +649,311 @@ function isJsonUrl(url: string): boolean {
 	return isValidURL(url) && url.endsWith(".json");
 }
 
-function isGBL(json: any): json is GraphDescriptor {
+function isBGL(json: any): json is GraphDescriptor {
 	const valid = is<GraphDescriptor>(json);
 	if (!valid) {
 		const validation = validate<GraphDescriptor>(json);
 		console.debug({ validation });
 	}
 	return valid;
+}
+
+type ChromeVersion = {
+	channel: string;
+	version: string;
+	revision: string;
+};
+
+// export type ChromiumVersion = {
+// 	channel: string;
+// 	chromium_main_branch_position: number;
+// 	hashes: Hashes;
+// 	milestone: number;
+// 	platform: string;
+// 	previous_version: string;
+// 	time: number;
+// 	version: string;
+// };
+
+// export type Hashes = {
+// 	angle: string;
+// 	chromium: string;
+// 	dawn: string;
+// 	devtools: string;
+// 	pdfium: string;
+// 	skia: string;
+// 	v8: string;
+// 	webrtc: string;
+// };
+
+export type ChromeVersions = {
+	timestamp: string;
+	channels: Record<ChromeChannel, ChromeVersion>;
+};
+
+// export interface Channels {
+// 	Stable: Stable;
+// 	Beta: Beta;
+// 	Dev: Dev;
+// 	Canary: Canary;
+// }
+
+// export interface Stable {
+// 	channel: string;
+// 	version: string;
+// 	revision: string;
+// }
+
+// export interface Beta {
+// 	channel: string;
+// 	version: string;
+// 	revision: string;
+// }
+
+// export interface Dev {
+// 	channel: string;
+// 	version: string;
+// 	revision: string;
+// }
+
+// export interface Canary {
+// 	channel: string;
+// 	version: string;
+// 	revision: string;
+// }
+
+type ChromeChannel = "Stable" | "Beta" | "Dev" | "Canary";
+// type Paltform = "Linux" | "Mac" | "Windows";
+
+// https://chromiumdash.appspot.com/fetch_releases?channel=Stable&platform=Linux&num=1
+async function getLatestChromiumVersionData(
+	channel: ChromeChannel = "Stable"
+): Promise<ChromeVersion> {
+	const url =
+		"https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions.json";
+	const json: ChromeVersions = await fetch(url).then(
+		async (response) => await response.json()
+	);
+	return json.channels[channel];
+}
+async function getChromeRevision(
+	channel: ChromeChannel = "Stable"
+): Promise<string> {
+	const version = await getLatestChromiumVersionData(channel);
+	return version.revision;
+}
+
+setInterval(() => {
+	if (!client.isReady()) {
+		console.error("Bot is not responsive, exiting...");
+		process.exit(1);
+	}
+}, minutesToMs(1));
+
+function minutesToMs(arg0: number): number {
+	return 1000 * 60 * arg0;
+}
+
+client.login(DISCORD_TOKEN);
+
+app.listen(PORT, () => {
+	console.log(`Server is running on port ${PORT}`);
+});
+
+async function startupTest(channel: TextChannel) {
+	const url =
+		"https://raw.githubusercontent.com/breadboard-ai/breadboard/main/boards/components/convert-string-to-json/index.json";
+	const json: Object = await fetch(url).then(
+		async (response) => await response.json()
+	);
+	const { name, extension } = extractFileNameAndExtension(url);
+
+	if (!isBGL(json)) {
+		throw new Error("Invalid board");
+	}
+	const testMessage = await channel.send("Runing startup test...");
+
+	const { jsonFile, tempDir } = mkTempFile("breadbot", `${name}.json`);
+	fs.writeFileSync(jsonFile, JSON.stringify(json, bigIntHandler, "\t"));
+
+	await testMessage.edit({
+		files: [jsonFile],
+	});
+
+	const runner = await BoardRunner.fromGraphDescriptor(json);
+	const boardMermaid = runner.mermaid();
+	const mmdFile = path.join(tempDir, `${name}.mmd`);
+	fs.writeFileSync(mmdFile, boardMermaid);
+
+	await testMessage.edit({
+		files: [jsonFile, mmdFile],
+	});
+
+	const mermaidMarkdown = [
+		"```mermaid",
+		boardMermaid,
+		"```",
+	].join("\n");
+	const markdownFile = path.join(tempDir, `${name}.md`);
+	fs.writeFileSync(markdownFile, mermaidMarkdown);
+
+	await testMessage.edit({
+		files: [jsonFile, mmdFile, markdownFile],
+	});
+
+	const outputFormat: OutputExtension = "png";
+	const imageFile: MermaidOutput = path.join(
+		tempDir,
+		`${name}.${outputFormat}`
+	) as MermaidOutput;
+
+	// const timeStarted = Date.now();
+
+	// const browser = await puppeteer.launch({
+	// 	// headless: "new",
+	// 	headless: true,
+	// 	timeout: 5 * 60 * 1000,
+	// 	executablePath: process.env.CHROME_BIN || "/usr/bin/chromium-browser",
+	// 	args: [
+	// 		'--no-sandbox',
+	// 		// '--disable-setuid-sandbox',
+	// 		'--disable-dev-shm-usage',
+	// 		// '--disable-gpu',
+	// 	],
+	// });
+	// // const result = await mermaidCli.renderMermaid(browser, boardMermaid, "png")
+	// const result = await mermaidCli.renderMermaid(
+	// 	browser as any,
+	// 	boardMermaid,
+	// 	"png"
+	// );
+	// const timeElapsed = Date.now() - timeStarted;
+	// await browser.close();
+	// fs.writeFileSync(imageFile, result.data);
+
+
+	const result = await mermaidCli.run(mmdFile, imageFile, {
+		outputFormat,
+		puppeteerConfig: {
+			headless: true,
+			args: [
+				"--no-sandbox",
+				// '--disable-setuid-sandbox',
+				"--disable-dev-shm-usage",
+				// '--disable-gpu',
+			],
+			// timeout: minutesToMs(5),
+			// executablePath: "/usr/bin/chromium-browser",
+		} satisfies PuppeteerLaunchOptions,
+	});
+	await testMessage.edit({
+		files: [
+			jsonFile,
+			mmdFile,
+			imageFile
+		],
+		content: [
+			// `${timeElapsed}ms`,
+			// `${timeElapsed / 1000}s`,
+		].join("\n")
+	});
+}
+
+// function runBoard(interaction: ChatInputCommandInteraction<import("discord.js").CacheType>) {
+async function runBoardCommandHandler(
+	interaction: ChatInputCommandInteraction
+) {
+	const options = interaction.options;
+	const user: User = interaction.user;
+	const url = options.getString("url") || "";
+	const reply = await interaction.reply({
+		content: "Processing...",
+	});
+
+	if (!isValidURL(url)) {
+		const message = `Invalid URL: \`${url}\``;
+		await respond(interaction, message);
+		console.warn({
+			message,
+			interaction,
+		});
+		await reply.delete();
+		return;
+	}
+
+	if (!isJsonUrl(url)) {
+		const message = `That URL does not end with .json: \`${url}\``;
+		await respond(interaction, message);
+		console.warn({
+			message,
+			interaction,
+		});
+		await reply.delete();
+		return;
+	}
+
+	const json: Object = await fetch(url).then(
+		async (response) => await response.json()
+	);
+	if (!isBGL(json)) {
+		const message = `Uh oh, that doesn't look like a board:\n${url}`;
+		await respond(interaction, message);
+		console.warn({
+			message,
+			interaction,
+		});
+		await reply.delete();
+		return;
+	}
+
+	const runner = await BoardRunner.fromGraphDescriptor(json);
+	for await (const runResult of runner.run()) {
+		if (runResult.type === "input") {
+			// await interaction.followUp({
+			// 	content: JSON.stringify(runResult.inputs, null, 2)
+			// });
+			// const invocationId = runResult.invocationId.toString() + nodeid
+			const invocationId = runResult.invocationId.toString()
+			const modal = new ModalBuilder()
+				.setCustomId(invocationId)
+				.setTitle("Inputs");
+
+			// const inputAction =
+			// 	new ActionRowBuilder<TextInputBuilder>().addComponents(
+			// 		new TextInputBuilder()
+			// 			.setCustomId(invocationId)
+			// 			.setLabel(JSON.stringify(runResult.inputs, null, 2))
+			// 			.setStyle(TextInputStyle.Paragraph)
+			// 			.setRequired(true)
+			// 	);
+			// modal.addComponents(inputAction);
+
+			// const inputData = await interaction
+			// 	.showModal(modal)
+			// 	.then(async (message) => {
+			// 		// client.on(Events.InteractionCreate, async interaction => {
+			// 		// 	if (!interaction.isModalSubmit()) return;
+			// 		// 	if (interaction.customId === 'myModal') {
+			// 		// 		await interaction.reply({ content: 'Your submission was received successfully!' });
+			// 		// 	}
+			// 		// });
+
+			// 		// create a promise to be resolved when the modal is submitted
+			// 		const promise = new Promise((resolve) => {
+			// 			client.on(Events.InteractionCreate, async (interaction) => {
+			// 				if (
+			// 					interaction.isModalSubmit() &&
+			// 					interaction.customId === invocationId
+			// 				) {
+			// 					resolve(interaction);
+			// 				}
+			// 			});
+			// 		});
+			// 		// wait for the modal to be submitted
+			// 		const modalSubmit = await promise;
+			// 		console.log({ modalSubmit });
+			// 		// runResult.inputs = modalSubmit.values;
+			// 	});
+		}
+	}
 }
