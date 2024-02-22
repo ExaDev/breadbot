@@ -928,7 +928,7 @@ async function runBoardCommandHandler(
 				console.log("key", key);
 				const component = new TextInputBuilder()
 					.setCustomId(key)
-					.setLabel(key)
+					.setLabel(`Enter the ${key} value`)
 					.setStyle(TextInputStyle.Short)
 					.setRequired(true)
 				components.push(component)
