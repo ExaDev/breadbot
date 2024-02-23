@@ -1,4 +1,9 @@
-import { BoardRunner, GraphDescriptor, InputValues, Schema } from "@google-labs/breadboard";
+import {
+	BoardRunner,
+	GraphDescriptor,
+	InputValues,
+	Schema,
+} from "@google-labs/breadboard";
 import * as mermaidCli from "@mermaid-js/mermaid-cli";
 import { randomUUID } from "crypto";
 import {
@@ -47,7 +52,6 @@ const instanceName = process.env.K_REVISION || os.hostname();
 // 	.then(() => { console.log('Done!'); })
 // 	.catch(err => { console.log('Error', err); });
 
-
 const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID;
 if (!DISCORD_CLIENT_ID) {
 	throw new Error("Missing DISCORD_CLIENT_ID");
@@ -94,7 +98,6 @@ app.get("/start", (req, res) => {
 	}
 });
 
-
 const loadBoardCommand = new SlashCommandBuilder()
 	.setName("load")
 	.setDescription("Loads a board from a url")
@@ -105,13 +108,15 @@ const loadBoardCommand = new SlashCommandBuilder()
 			.setRequired(true)
 	);
 
-type SlashCommandDefinition = Omit<SlashCommandBuilder, "addSubcommand" | "addSubcommandGroup">
+type SlashCommandDefinition = Omit<
+	SlashCommandBuilder,
+	"addSubcommand" | "addSubcommandGroup"
+>;
 type Action = (interaction: SlashCommandDefinition) => Promise<void> | void;
-type CommandAndHandler<T> ={
-	command: SlashCommandDefinition
-	handler: Action
-}
-
+type CommandAndHandler<T> = {
+	command: SlashCommandDefinition;
+	handler: Action;
+};
 
 async function setCommand(
 	client_id: string,
@@ -124,7 +129,6 @@ async function setCommand(
 		.put(Routes.applicationCommands(client_id), {
 			body: commands.map((command) => command.toJSON()),
 		});
-
 
 	// const results = commands.map(async (command) => {
 	// 	const result = await new REST()
@@ -184,12 +188,12 @@ client.on(Events.ClientReady, (client) => {
 						].join("\n")
 					);
 					await startupTest(channel);
-	// await puppeteer.createBrowserFetcher().download(puppeteerBrowsers.ChromeReleaseChannel.STABLE, (progress) => {
-	// await puppeteer.createBrowserFetcher({
-	// 	product: "chrome"
-	// }).download("latest", (progress) => {
-	// 	console.debug(progress);
-	// });
+					// await puppeteer.createBrowserFetcher().download(puppeteerBrowsers.ChromeReleaseChannel.STABLE, (progress) => {
+					// await puppeteer.createBrowserFetcher({
+					// 	product: "chrome"
+					// }).download("latest", (progress) => {
+					// 	console.debug(progress);
+					// });
 
 					// testPuppeteer
 					// const testMessage = await channel.send("Downloading chrome");
@@ -447,7 +451,7 @@ client.on(Events.InteractionCreate, async (interaction): Promise<void> => {
 	// ignore messages from bot itself
 	if (interaction.user.id === client.user?.id) {
 		console.debug({
-			ignored: interaction
+			ignored: interaction,
 		});
 		return;
 	}
@@ -793,11 +797,7 @@ async function startupTest(channel: TextChannel) {
 		files: [jsonFile, mmdFile],
 	});
 
-	const mermaidMarkdown = [
-		"```mermaid",
-		boardMermaid,
-		"```",
-	].join("\n");
+	const mermaidMarkdown = ["```mermaid", boardMermaid, "```"].join("\n");
 	const markdownFile = path.join(tempDir, `${name}.md`);
 	fs.writeFileSync(markdownFile, mermaidMarkdown);
 
@@ -835,7 +835,6 @@ async function startupTest(channel: TextChannel) {
 	// await browser.close();
 	// fs.writeFileSync(imageFile, result.data);
 
-
 	const result = await mermaidCli.run(mmdFile, imageFile, {
 		outputFormat,
 		puppeteerConfig: {
@@ -851,15 +850,11 @@ async function startupTest(channel: TextChannel) {
 		} satisfies PuppeteerLaunchOptions,
 	});
 	await testMessage.edit({
-		files: [
-			jsonFile,
-			mmdFile,
-			imageFile
-		],
+		files: [jsonFile, mmdFile, imageFile],
 		content: [
 			// `${timeElapsed}ms`,
 			// `${timeElapsed / 1000}s`,
-		].join("\n")
+		].join("\n"),
 	});
 }
 
@@ -874,7 +869,7 @@ async function runBoardCommandHandler(
 	// https://discordjs.guide/interactions/modals.html#building-and-responding-with-modals:~:text=Showing%20a%20modal%20must%20be%20the%20first%20response%20to%20an%20interaction.%20You%20cannot%20defer()%20or%20deferUpdate()%20then%20show%20a%20modal%20later
 	// const reply = await interaction.reply({
 	// 	content: "Processing...",
-	// }); 
+	// });
 
 	if (!isValidURL(url)) {
 		const message = `Invalid URL: \`${url}\``;
@@ -912,42 +907,46 @@ async function runBoardCommandHandler(
 		return;
 	}
 
-/*
-/run url:https://gist.githubusercontent.com/TinaNikou/946225dc7f364d9823b20e68419f1422/raw/bb349ddaea218b376109ef8febf48506271dd10d/TestBoard.json
-*/
+	/*
+	/run url:https://gist.githubusercontent.com/TinaNikou/946225dc7f364d9823b20e68419f1422/raw/bb349ddaea218b376109ef8febf48506271dd10d/TestBoard.json
+	*/
 	const runner = await BoardRunner.fromGraphDescriptor(json);
 	for await (const runResult of runner.run()) {
 		if (runResult.type === "input") {
-			const uuid = randomUUID()
-			const invocationId = runResult.invocationId.toString()
-			const uuidWithInvocationId = `${uuid}.${invocationId}`
+			const uuid = randomUUID();
+			const invocationId = runResult.invocationId.toString();
+			const uuidWithInvocationId = `${uuid}.${invocationId}`;
 			const modal = new ModalBuilder()
 				.setCustomId(uuidWithInvocationId)
 				.setTitle("Inputs");
 
-			const schema = runResult.inputArguments["schema"] as Schema
-			
-			const components = Array<TextInputBuilder>()
-			
+			const schema = runResult.inputArguments["schema"] as Schema;
+
+			const components = Array<TextInputBuilder>();
+
 			for (const key in schema.properties) {
 				console.log("key", key);
 				const component = new TextInputBuilder()
 					.setCustomId(key)
 					.setLabel(`Enter the ${key} value`)
 					.setStyle(TextInputStyle.Short)
-					.setRequired(true)
-				components.push(component)
+					.setRequired(true);
+				components.push(component);
 			}
 
-			const actionRows = Array<ActionRowBuilder<TextInputBuilder>>()
+			const actionRows = Array<ActionRowBuilder<TextInputBuilder>>();
 
 			components.forEach((element) => {
-				actionRows.push(new ActionRowBuilder<ModalActionRowComponentBuilder>().addComponents(element))
-			})
+				actionRows.push(
+					new ActionRowBuilder<ModalActionRowComponentBuilder>().addComponents(
+						element
+					)
+				);
+			});
 
 			actionRows.forEach((actionRow) => {
 				modal.addComponents(actionRow);
-			})
+			});
 
 			const inputData = await interaction
 				.showModal(modal)
@@ -959,7 +958,9 @@ async function runBoardCommandHandler(
 								interaction.isModalSubmit() &&
 								interaction.customId === uuidWithInvocationId
 							) {
-								await interaction.reply({ content: 'Your submission was received successfully!' }); // does there need to be a reply so that the modal can close?
+								await interaction.reply({
+									content: "Your submission was received successfully!",
+								}); // does there need to be a reply so that the modal can close?
 								resolve(interaction);
 							}
 						});
@@ -968,42 +969,50 @@ async function runBoardCommandHandler(
 					const modalSubmit = await promise;
 					console.log({ modalSubmit });
 
-					const modalValuesFromFields: InputValues = {}
+					const modalValuesFromFields: InputValues = {};
 
-					const modalFields: Array<string>= Array<string>()
+					const modalFields: Array<string> = Array<string>();
 
-					modalSubmit.fields.fields.forEach((textInput: TextInputComponent, field: string) => {
-						modalFields.push(field)
+					modalSubmit.fields.fields.forEach(
+						(textInput: TextInputComponent, field: string) => {
+							modalFields.push(field);
+						}
+					);
+
+					modalFields.forEach((field) => {
+						console.log(`Field '${field}'`);
+						const textInputValue = modalSubmit.fields.getTextInputValue(field);
+
+						console.log(`Value '${textInputValue}'`);
+						modalValuesFromFields[field] = textInputValue;
 					});
 
-					modalFields.forEach(field => {
-						console.log(`Field '${field}'`)
-						const textInputValue = modalSubmit.fields.getTextInputValue(field)
+					console.log(
+						"modalValuesFromFields: " +
+						JSON.stringify(modalValuesFromFields, null, 2)
+					);
 
-						console.log(`Value '${textInputValue}'`)
-						modalValuesFromFields[field] = textInputValue
-					});
-
-					console.log("modalValuesFromFields: " + JSON.stringify(modalValuesFromFields, null, 2))
-					
 					runResult.inputs = modalValuesFromFields;
-
 				});
 		} else if (runResult.type === "output") {
 			// TODO output handling
-			
+
 			if (runResult.node.id === "outputOne") {
 				console.log("outputOne", JSON.stringify(runResult.outputs, null, 2));
 
-				respondInChannel(interaction, JSON.stringify(runResult.outputs.outputMessageOne, null, 2))
-				respondInChannel(interaction, toJsonCodeFence(runResult.outputs))
-
+				respondInChannel(
+					interaction,
+					JSON.stringify(runResult.outputs.outputMessageOne, null, 2)
+				);
+				respondInChannel(interaction, toJsonCodeFence(runResult.outputs));
 			} else if (runResult.node.id === "outputTwo") {
 				console.log("outputTwo", JSON.stringify(runResult.outputs, null, 2));
 
-				respondInChannel(interaction, JSON.stringify(runResult.outputs.outputMessageTwo, null, 2))
-				respondInChannel(interaction, toJsonCodeFence(runResult.outputs))
-
+				respondInChannel(
+					interaction,
+					JSON.stringify(runResult.outputs.outputMessageTwo, null, 2)
+				);
+				respondInChannel(interaction, toJsonCodeFence(runResult.outputs));
 			}
 		}
 	}
