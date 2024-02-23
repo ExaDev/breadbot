@@ -927,7 +927,7 @@ async function runBoardCommandHandler(
 			for (const key in schema.properties) {
 				console.log("key", key);
 				const component = new TextInputBuilder()
-					.setCustomId(key)
+					.setCustomId(key) // TODO: this may need to be concatenated with the invocationId
 					.setLabel(`Enter the ${key} value`)
 					.setStyle(TextInputStyle.Short)
 					.setRequired(true);
