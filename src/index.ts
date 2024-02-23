@@ -562,7 +562,7 @@ async function respondInChannel(
 	return await interaction.channel.send(payload);
 }
 
-function bigIntHandler(key: any, value: { toString: () => any }) {
+function bigIntHandler(key: any, value: { toString: () => any; }) {
 	return typeof value === "bigint" ? value.toString() : value;
 }
 
@@ -614,8 +614,8 @@ function truncateObject(
 				truncateRecursively(
 					value,
 					currentMaxLength -
-						jsonString.length +
-						JSON.stringify(value, bigIntHandler).length,
+					jsonString.length +
+					JSON.stringify(value, bigIntHandler).length,
 					depth + 1
 				);
 			} else {
