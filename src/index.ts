@@ -995,25 +995,8 @@ async function runBoardCommandHandler(
 					runResult.inputs = modalValuesFromFields;
 				});
 		} else if (runResult.type === "output") {
-			// TODO output handling
-
-			if (runResult.node.id === "outputOne") {
-				console.log("outputOne", JSON.stringify(runResult.outputs, null, 2));
-
-				respondInChannel(
-					interaction,
-					JSON.stringify(runResult.outputs.outputMessageOne, null, 2)
-				);
-				respondInChannel(interaction, toJsonCodeFence(runResult.outputs));
-			} else if (runResult.node.id === "outputTwo") {
-				console.log("outputTwo", JSON.stringify(runResult.outputs, null, 2));
-
-				respondInChannel(
-					interaction,
-					JSON.stringify(runResult.outputs.outputMessageTwo, null, 2)
-				);
-				respondInChannel(interaction, toJsonCodeFence(runResult.outputs));
-			}
+			const { schema, ...outputs } = runResult.outputs;
+			respondInChannel(interaction, toJsonCodeFence({ outputs }));
 		}
 	}
 }
