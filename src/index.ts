@@ -1,5 +1,6 @@
 import { BoardRunner, GraphDescriptor, InputValues, Schema } from "@google-labs/breadboard";
 import * as mermaidCli from "@mermaid-js/mermaid-cli";
+import { randomUUID } from "crypto";
 import {
 	ActionRowBuilder,
 	ChannelType,
@@ -911,13 +912,17 @@ async function runBoardCommandHandler(
 		return;
 	}
 
-	// Testing with https://gist.githubusercontent.com/TinaNikou/946225dc7f364d9823b20e68419f1422/raw/32fe884d998211263e6693b012962ba873125e0e/TestBoard.json
+/*
+/run url:https://gist.githubusercontent.com/TinaNikou/946225dc7f364d9823b20e68419f1422/raw/bb349ddaea218b376109ef8febf48506271dd10d/TestBoard.json
+*/
 	const runner = await BoardRunner.fromGraphDescriptor(json);
 	for await (const runResult of runner.run()) {
 		if (runResult.type === "input") {
+			const uuid = randomUUID()
 			const invocationId = runResult.invocationId.toString()
+			const uuidWithInvocationId = `${uuid}.${invocationId}`
 			const modal = new ModalBuilder()
-				.setCustomId(invocationId)
+				.setCustomId(uuidWithInvocationId)
 				.setTitle("Inputs");
 
 			const schema = runResult.inputArguments["schema"] as Schema
@@ -952,7 +957,7 @@ async function runBoardCommandHandler(
 						client.on(Events.InteractionCreate, async (interaction) => {
 							if (
 								interaction.isModalSubmit() &&
-								interaction.customId === invocationId
+								interaction.customId === uuidWithInvocationId
 							) {
 								await interaction.reply({ content: 'Your submission was received successfully!' }); // does there need to be a reply so that the modal can close?
 								resolve(interaction);
