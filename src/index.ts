@@ -959,7 +959,7 @@ async function runBoardCommandHandler(
 								interaction.customId === uuidWithInvocationId
 							) {
 								await interaction.reply({
-									content: "Your submission was received successfully!",
+									content: url,
 								}); // does there need to be a reply so that the modal can close?
 								resolve(interaction);
 							}
