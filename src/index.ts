@@ -42,7 +42,6 @@ const instanceName = process.env.K_REVISION || os.hostname();
 // 	.then(() => { console.log('Done!'); })
 // 	.catch(err => { console.log('Error', err); });
 
-
 const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID;
 if (!DISCORD_CLIENT_ID) {
 	throw new Error("Missing DISCORD_CLIENT_ID");
@@ -89,7 +88,6 @@ app.get("/start", (req, res) => {
 	}
 });
 
-
 const loadBoardCommand = new SlashCommandBuilder()
 	.setName("load")
 	.setDescription("Loads a board from a url")
@@ -100,13 +98,15 @@ const loadBoardCommand = new SlashCommandBuilder()
 			.setRequired(true)
 	);
 
-type SlashCommandDefinition = Omit<SlashCommandBuilder, "addSubcommand" | "addSubcommandGroup">
+type SlashCommandDefinition = Omit<
+	SlashCommandBuilder,
+	"addSubcommand" | "addSubcommandGroup"
+>;
 type Action = (interaction: SlashCommandDefinition) => Promise<void> | void;
-type CommandAndHandler<T> ={
-	command: SlashCommandDefinition
-	handler: Action
-}
-
+type CommandAndHandler<T> = {
+	command: SlashCommandDefinition;
+	handler: Action;
+};
 
 async function setCommand(
 	client_id: string,
@@ -119,7 +119,6 @@ async function setCommand(
 		.put(Routes.applicationCommands(client_id), {
 			body: commands.map((command) => command.toJSON()),
 		});
-
 
 	// const results = commands.map(async (command) => {
 	// 	const result = await new REST()
@@ -179,12 +178,12 @@ client.on(Events.ClientReady, (client) => {
 						].join("\n")
 					);
 					await startupTest(channel);
-	// await puppeteer.createBrowserFetcher().download(puppeteerBrowsers.ChromeReleaseChannel.STABLE, (progress) => {
-	// await puppeteer.createBrowserFetcher({
-	// 	product: "chrome"
-	// }).download("latest", (progress) => {
-	// 	console.debug(progress);
-	// });
+					// await puppeteer.createBrowserFetcher().download(puppeteerBrowsers.ChromeReleaseChannel.STABLE, (progress) => {
+					// await puppeteer.createBrowserFetcher({
+					// 	product: "chrome"
+					// }).download("latest", (progress) => {
+					// 	console.debug(progress);
+					// });
 
 					// testPuppeteer
 					// const testMessage = await channel.send("Downloading chrome");
@@ -442,7 +441,7 @@ client.on(Events.InteractionCreate, async (interaction): Promise<void> => {
 	// ignore messages from bot itself
 	if (interaction.user.id === client.user?.id) {
 		console.debug({
-			ignored: interaction
+			ignored: interaction,
 		});
 		return;
 	}
@@ -553,7 +552,7 @@ async function respondInChannel(
 	return await interaction.channel.send(payload);
 }
 
-function bigIntHandler(key: any, value: { toString: () => any }) {
+function bigIntHandler(key: any, value: { toString: () => any; }) {
 	return typeof value === "bigint" ? value.toString() : value;
 }
 
@@ -605,8 +604,8 @@ function truncateObject(
 				truncateRecursively(
 					value,
 					currentMaxLength -
-						jsonString.length +
-						JSON.stringify(value, bigIntHandler).length,
+					jsonString.length +
+					JSON.stringify(value, bigIntHandler).length,
 					depth + 1
 				);
 			} else {
@@ -788,11 +787,7 @@ async function startupTest(channel: TextChannel) {
 		files: [jsonFile, mmdFile],
 	});
 
-	const mermaidMarkdown = [
-		"```mermaid",
-		boardMermaid,
-		"```",
-	].join("\n");
+	const mermaidMarkdown = ["```mermaid", boardMermaid, "```"].join("\n");
 	const markdownFile = path.join(tempDir, `${name}.md`);
 	fs.writeFileSync(markdownFile, mermaidMarkdown);
 
@@ -830,7 +825,6 @@ async function startupTest(channel: TextChannel) {
 	// await browser.close();
 	// fs.writeFileSync(imageFile, result.data);
 
-
 	const result = await mermaidCli.run(mmdFile, imageFile, {
 		outputFormat,
 		puppeteerConfig: {
@@ -846,15 +840,11 @@ async function startupTest(channel: TextChannel) {
 		} as PuppeteerLaunchOptions,
 	});
 	await testMessage.edit({
-		files: [
-			jsonFile,
-			mmdFile,
-			imageFile
-		],
+		files: [jsonFile, mmdFile, imageFile],
 		content: [
 			// `${timeElapsed}ms`,
 			// `${timeElapsed / 1000}s`,
-		].join("\n")
+		].join("\n"),
 	});
 }
 
