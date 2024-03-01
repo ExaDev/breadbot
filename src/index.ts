@@ -1,4 +1,6 @@
-import { BoardRunner, BreadboardRunResult, Edge, GraphDescriptor, InputValues, Schema, asRuntimeKit } from "@google-labs/breadboard";
+import { BoardRunner, GraphDescriptor, InputResponse, Schema, asRuntimeKit } from "@google-labs/breadboard";
+import { RunConfig, run } from "@google-labs/breadboard/harness";
+import { InputResolveRequest } from "@google-labs/breadboard/remote";
 import { Core } from "@google-labs/core-kit";
 import * as mermaidCli from "@mermaid-js/mermaid-cli";
 import {
@@ -397,7 +399,7 @@ async function executeLoadBoardCommand(
 				],
 				timeout: minutesToMs(5),
 				executablePath: "/usr/bin/chromium-browser",
-			} satisfies PuppeteerLaunchOptions,
+			} as PuppeteerLaunchOptions,
 		});
 		const timeElapsed = Date.now() - timeStarted;
 
@@ -841,7 +843,7 @@ async function startupTest(channel: TextChannel) {
 			],
 			// timeout: minutesToMs(5),
 			// executablePath: "/usr/bin/chromium-browser",
-		} satisfies PuppeteerLaunchOptions,
+		} as PuppeteerLaunchOptions,
 	});
 	await testMessage.edit({
 		files: [
@@ -902,61 +904,41 @@ async function runBoardCommandHandlerWithMessages(
 	}
 
 	const runner = await BoardRunner.fromGraphDescriptor(json);
-	// Discord can only send a single "reply" per interaction
-	// So further messages to an interaction are done as a "follow up" 
-	// let followUp = false; For now defaulting followUp to true because of sending an initial acknowledgement to the submission
-	for await (const result of runner.run({ kits: [asRuntimeKit(Core)] })) {
-		if (result.type === "input") {
-			const inputAttribute = getInputSchemaFromNode(result);
-			const input = await getUserInputForSchema(inputAttribute, interaction);
-			// followUp = true;
-			result.inputs = input;
-		} else if (result.type === "output") {
-			console.debug(result.node.id, "output", result.outputs);
-			respondInChannel(interaction, toJsonCodeFence(result.outputs))
-		}
-	}
-}
 
-export function getInputSchemaFromNode(runResult: BreadboardRunResult): Schema {
-	let schema: Schema;
-	const inputAttribute: string = runResult.state.newOpportunities.find(
-		(op: Edge) => op.from == runResult.node.id
-	)!.out!;
-	const schemaFromOpportunity = {
-		type: "object",
-		properties: {
-			[inputAttribute]: {
-				title: inputAttribute,
-				type: "string",
-			},
-		},
+	const runConfig: RunConfig = {
+		url: ".",
+		kits: [asRuntimeKit(Core)],
+		remote: undefined,
+		proxy: undefined,
+		diagnostics: true,
+		runner: runner,
 	};
-
-	if (runResult.inputArguments.schema) {
-		schema = runResult.inputArguments.schema as Schema;
-		if (inputAttribute == "*") {
-			return schema;
+	
+	const iterator = run(runConfig);
+	
+	let result = await iterator.next();
+	while (!result.done) {
+		if (result.value.type === "input") {
+			const inputAttribute = getInputSchemaFromNode(result.value.data);
+			const input = await getUserInputForSchema(inputAttribute, interaction);
+			await result.value.reply({
+				inputs: input
+			}  as InputResolveRequest);
+		} else if (result.value.type === "output") {
+			console.debug(result.value.data.node.id, "output", result.value.data.outputs);
+			respondInChannel(interaction, toJsonCodeFence(result.value.data.outputs))
 		}
-		if (
-			schema.properties &&
-			!Object.keys(schema.properties).includes(inputAttribute)
-		) {
-			throw new Error(
-				`Input attribute "${inputAttribute}" not found in schema:\n${JSON.stringify(
-					schema,
-					null,
-					2
-				)}`
-			);
-		}
-	} else {
-		schema = schemaFromOpportunity;
+		result = await iterator.next();
 	}
-	return schema;
+
 }
 
-// TODO setting followUp to true for now, because I want include an initial response to the /run and url being sent, so follow up will be used every time
+export function getInputSchemaFromNode(inputResponse: InputResponse): Schema {
+	return inputResponse.inputArguments.schema as Schema;
+}
+// Discord can only send a single "reply" per interaction
+// So further messages to an interaction are done as a "follow up" 
+// setting followUp to true for now, because I want include an initial response to the /run and url being sent, so follow up will be used every time
 async function getUserInputForSchema(schema: Schema, interaction: ChatInputCommandInteraction, followUp = true) {
 
 	const askQuestion = async (question: string, interaction: ChatInputCommandInteraction, followUp: boolean, timeout = 30000): Promise<string> => {
