@@ -1,8 +1,7 @@
-import { BoardRunner, GraphDescriptor, InputValues, Schema } from "@google-labs/breadboard";
+import { BoardRunner, BreadboardRunResult, Edge, GraphDescriptor, InputValues, Schema, asRuntimeKit } from "@google-labs/breadboard";
+import { Core } from "@google-labs/core-kit";
 import * as mermaidCli from "@mermaid-js/mermaid-cli";
-import { randomUUID } from "crypto";
 import {
-	ActionRowBuilder,
 	ChannelType,
 	ChatInputCommandInteraction,
 	Client,
@@ -14,17 +13,11 @@ import {
 	Message,
 	MessagePayload,
 	MessagePayloadOption,
-	ModalActionRowComponentBuilder,
-	ModalBuilder,
-	ModalSubmitInteraction,
 	Partials,
 	REST,
 	Routes,
 	SlashCommandBuilder,
 	TextChannel,
-	TextInputBuilder,
-	TextInputComponent,
-	TextInputStyle,
 	User,
 } from "discord.js";
 import "dotenv/config";
@@ -458,7 +451,7 @@ client.on(Events.InteractionCreate, async (interaction): Promise<void> => {
 		if (interaction.commandName === "load") {
 			await executeLoadBoardCommand(interaction);
 		} else if (interaction.commandName === "run") {
-			await runBoardCommandHandler(interaction);
+			await runBoardCommandHandlerWithMessages(interaction);
 		}
 	} else {
 		// await sendDebug(interaction, { debug });
@@ -863,18 +856,15 @@ async function startupTest(channel: TextChannel) {
 	});
 }
 
-// function runBoard(interaction: ChatInputCommandInteraction<import("discord.js").CacheType>) {
-async function runBoardCommandHandler(
+async function runBoardCommandHandlerWithMessages(
 	interaction: ChatInputCommandInteraction
 ) {
 	const options = interaction.options;
 	const user: User = interaction.user;
 	const url = options.getString("url") || "";
-	// Commented out because showing a modal must be the first response to an interaction
-	// https://discordjs.guide/interactions/modals.html#building-and-responding-with-modals:~:text=Showing%20a%20modal%20must%20be%20the%20first%20response%20to%20an%20interaction.%20You%20cannot%20defer()%20or%20deferUpdate()%20then%20show%20a%20modal%20later
-	// const reply = await interaction.reply({
-	// 	content: "Processing...",
-	// }); 
+	const reply = await interaction.reply({
+		content: url,
+	}); 
 
 	if (!isValidURL(url)) {
 		const message = `Invalid URL: \`${url}\``;
@@ -908,103 +898,101 @@ async function runBoardCommandHandler(
 			message,
 			interaction,
 		});
-		// await reply.delete();
 		return;
 	}
 
-/*
-/run url:https://gist.githubusercontent.com/TinaNikou/946225dc7f364d9823b20e68419f1422/raw/bb349ddaea218b376109ef8febf48506271dd10d/TestBoard.json
-*/
 	const runner = await BoardRunner.fromGraphDescriptor(json);
-	for await (const runResult of runner.run()) {
-		if (runResult.type === "input") {
-			const uuid = randomUUID()
-			const invocationId = runResult.invocationId.toString()
-			const uuidWithInvocationId = `${uuid}.${invocationId}`
-			const modal = new ModalBuilder()
-				.setCustomId(uuidWithInvocationId)
-				.setTitle("Inputs");
-
-			const schema = runResult.inputArguments["schema"] as Schema
-			
-			const components = Array<TextInputBuilder>()
-			
-			for (const key in schema.properties) {
-				console.log("key", key);
-				const component = new TextInputBuilder()
-					.setCustomId(key)
-					.setLabel(`Enter the ${key} value`)
-					.setStyle(TextInputStyle.Short)
-					.setRequired(true)
-				components.push(component)
-			}
-
-			const actionRows = Array<ActionRowBuilder<TextInputBuilder>>()
-
-			components.forEach((element) => {
-				actionRows.push(new ActionRowBuilder<ModalActionRowComponentBuilder>().addComponents(element))
-			})
-
-			actionRows.forEach((actionRow) => {
-				modal.addComponents(actionRow);
-			})
-
-			const inputData = await interaction
-				.showModal(modal)
-				.then(async (message) => {
-					// create a promise to be resolved when the modal is submitted
-					const promise = new Promise<ModalSubmitInteraction>((resolve) => {
-						client.on(Events.InteractionCreate, async (interaction) => {
-							if (
-								interaction.isModalSubmit() &&
-								interaction.customId === uuidWithInvocationId
-							) {
-								await interaction.reply({ content: 'Your submission was received successfully!' }); // does there need to be a reply so that the modal can close?
-								resolve(interaction);
-							}
-						});
-					});
-					// wait for the modal to be submitted
-					const modalSubmit = await promise;
-					console.log({ modalSubmit });
-
-					const modalValuesFromFields: InputValues = {}
-
-					const modalFields: Array<string>= Array<string>()
-
-					modalSubmit.fields.fields.forEach((textInput: TextInputComponent, field: string) => {
-						modalFields.push(field)
-					});
-
-					modalFields.forEach(field => {
-						console.log(`Field '${field}'`)
-						const textInputValue = modalSubmit.fields.getTextInputValue(field)
-
-						console.log(`Value '${textInputValue}'`)
-						modalValuesFromFields[field] = textInputValue
-					});
-
-					console.log("modalValuesFromFields: " + JSON.stringify(modalValuesFromFields, null, 2))
-					
-					runResult.inputs = modalValuesFromFields;
-
-				});
-		} else if (runResult.type === "output") {
-			// TODO output handling
-			
-			if (runResult.node.id === "outputOne") {
-				console.log("outputOne", JSON.stringify(runResult.outputs, null, 2));
-
-				respondInChannel(interaction, JSON.stringify(runResult.outputs.outputMessageOne, null, 2))
-				respondInChannel(interaction, toJsonCodeFence(runResult.outputs))
-
-			} else if (runResult.node.id === "outputTwo") {
-				console.log("outputTwo", JSON.stringify(runResult.outputs, null, 2));
-
-				respondInChannel(interaction, JSON.stringify(runResult.outputs.outputMessageTwo, null, 2))
-				respondInChannel(interaction, toJsonCodeFence(runResult.outputs))
-
-			}
+	// Discord can only send a single "reply" per interaction
+	// So further messages to an interaction are done as a "follow up" 
+	// let followUp = false; For now defaulting followUp to true because of sending an initial acknowledgement to the submission
+	for await (const result of runner.run({ kits: [asRuntimeKit(Core)] })) {
+		if (result.type === "input") {
+			const inputAttribute = getInputSchemaFromNode(result);
+			const input = await getUserInputForSchema(inputAttribute, interaction);
+			// followUp = true;
+			result.inputs = input;
+		} else if (result.type === "output") {
+			console.debug(result.node.id, "output", result.outputs);
+			respondInChannel(interaction, toJsonCodeFence(result.outputs))
 		}
 	}
+}
+
+export function getInputSchemaFromNode(runResult: BreadboardRunResult): Schema {
+	let schema: Schema;
+	const inputAttribute: string = runResult.state.newOpportunities.find(
+		(op: Edge) => op.from == runResult.node.id
+	)!.out!;
+	const schemaFromOpportunity = {
+		type: "object",
+		properties: {
+			[inputAttribute]: {
+				title: inputAttribute,
+				type: "string",
+			},
+		},
+	};
+
+	if (runResult.inputArguments.schema) {
+		schema = runResult.inputArguments.schema as Schema;
+		if (inputAttribute == "*") {
+			return schema;
+		}
+		if (
+			schema.properties &&
+			!Object.keys(schema.properties).includes(inputAttribute)
+		) {
+			throw new Error(
+				`Input attribute "${inputAttribute}" not found in schema:\n${JSON.stringify(
+					schema,
+					null,
+					2
+				)}`
+			);
+		}
+	} else {
+		schema = schemaFromOpportunity;
+	}
+	return schema;
+}
+
+// TODO setting followUp to true for now, because I want include an initial response to the /run and url being sent, so follow up will be used every time
+async function getUserInputForSchema(schema: Schema, interaction: ChatInputCommandInteraction, followUp = true) {
+
+	const askQuestion = async (question: string, interaction: ChatInputCommandInteraction, followUp: boolean, timeout = 30000): Promise<string> => {
+		if (!followUp) {
+			await interaction.reply(question);
+		} else {
+			await interaction.followUp(question);
+		}
+	
+		const filter = (response: Message) => {
+			return response.author.id === interaction.user.id && response.channel.id === interaction.channel?.id;;
+		};
+	
+		try {
+			const collected = await interaction.channel?.awaitMessages({ filter, max: 1, time: timeout, errors: ['time'] });
+			const reply = collected?.first()?.content ?? 'No reply was received in the time limit.';
+			return reply;
+		} catch (error) {
+			return 'No reply was received in the time limit.';
+		}
+	}
+
+	async function getInputFromSchema() {
+		const userInput: { [key: string]: string } = {};
+		for (const key in schema.properties) {
+			const property = schema.properties[key];
+			if (property.type === "string") {
+				const inputAttribute = typeof property.title !== "undefined" ? property.title : key
+				const answer = await askQuestion(`Please enter the value for ${inputAttribute}: `, interaction, followUp);
+				await interaction.followUp(`Received: ${answer}`)
+				userInput[key] = answer;
+			}
+		}
+
+		return userInput;
+	}
+
+	return getInputFromSchema();
 }
