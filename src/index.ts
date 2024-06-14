@@ -458,10 +458,10 @@ function isJsonUrl(url: string): boolean {
 }
 
 function isGBL(json: any): json is GraphDescriptor {
-	const valid = is<GraphDescriptor>(json);
-	if (!valid) {
-		const validation = validate<GraphDescriptor>(json);
-		console.debug({ validation });
-	}
-	return valid;
+	const valid = typeof json == "object" && 
+					"nodes" in json &&
+					"edges" in json &&
+					Array.isArray(json.nodes) == true &&
+					Array.isArray(json.edges) == true
+	return valid
 }
