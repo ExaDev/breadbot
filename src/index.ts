@@ -1,6 +1,9 @@
-import { BoardRunner, GraphDescriptor } from "@google-labs/breadboard";
+import { BoardRunner, GraphDescriptor, InputResponse, Schema, asRuntimeKit } from "@google-labs/breadboard";
+import { Core } from "@google-labs/core-kit";
+import { RunConfig, run } from "@google-labs/breadboard/harness";
 import * as mermaidCli from "@mermaid-js/mermaid-cli";
 import {
+	ChatInputCommandInteraction,
 	Client,
 	Events,
 	GatewayIntentBits,
@@ -14,6 +17,7 @@ import {
 	REST,
 	Routes,
 	SlashCommandBuilder,
+	SlashCommandOptionsOnlyBuilder,
 	User,
 } from "discord.js";
 import "dotenv/config";
@@ -21,7 +25,7 @@ import express from 'express';
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { is, validate } from "typia";
+import { InputResolveRequest } from "@google-labs/breadboard/remote";
 
 const app = express();
 let botLoggedIn = false;
@@ -48,22 +52,40 @@ const loadBoardCommand = new SlashCommandBuilder()
 			.setRequired(true)
 	);
 
-async function setCommand(
+	const runBoardCommand = new SlashCommandBuilder()
+	.setName("run")
+	.setDescription("Runs a board from a URL")
+	.addStringOption((option) =>
+		option
+			.setName("url")
+			.setDescription("The url of the board")
+			.setRequired(true)
+	);
+
+type CustomSlashCommandBuilder = Omit<SlashCommandBuilder, "addSubcommand" | "addSubcommandGroup">
+
+async function setCommands(
 	client_id: string,
 	token: string,
-	command: Omit<SlashCommandBuilder, "addSubcommand" | "addSubcommandGroup">
+	commands: SlashCommandOptionsOnlyBuilder[]
 ) {
-	const commandData = command.toJSON();
-	const result = await new REST()
+	const rest = new REST()
 		.setToken(token)
-		.put(Routes.applicationCommands(client_id), {
-			body: [commandData],
-		});
-	console.log({ result });
-	return result;
+		
+		try {
+			console.log("Trying to load application slash commands.");
+			await rest.put(Routes.applicationCommands(client_id), {
+				body: commands.map(command => command.toJSON())
+			});
+			console.log("Successfully loaded application slash commands.");
+		} catch(error) {
+			console.error("Failed to load application slash commands.")
+		}
+	return rest;
 }
 
-await setCommand(DISCORD_CLIENT_ID, DISCORD_TOKEN, loadBoardCommand);
+// await setCommand(DISCORD_CLIENT_ID, DISCORD_TOKEN, loadBoardCommand);
+await setCommands(DISCORD_CLIENT_ID, DISCORD_TOKEN, [loadBoardCommand, runBoardCommand]);
 
 const client = new Client({
 	intents: [
@@ -188,7 +210,7 @@ client.on(Events.InteractionCreate, async (interaction): Promise<void> => {
 					return;
 				}
 
-				if (!isGBL(json)) {
+				if (!isBGL(json)) {
 					const message = `Uh oh, that doesn't look like a board:\n${url}`;
 					await respond(interaction, message);
 					return;
@@ -252,10 +274,7 @@ client.on(Events.InteractionCreate, async (interaction): Promise<void> => {
 				) as MermaidOutput;
 
 				await mermaidCli.run(mmdFile, imageFile, {
-					outputFormat,
-					puppeteerConfig: {
-						headless: "new",
-					},
+					outputFormat
 				});
 
 				console.log({ tempFile: imageFile });
@@ -264,6 +283,63 @@ client.on(Events.InteractionCreate, async (interaction): Promise<void> => {
 					content: [`<@${userId}>`, boardMetaDataMarkdown].join("\n"),
 					files: [jsonFile, markdownFile, imageFile],
 				});
+			}
+		} else if (command === "run") {
+			const url = options.getString("url") || "";
+			const reply = await interaction.reply({
+				content: url,
+			}); 
+			if (!isValidURL(url)) {
+				const message = `Invalid URL: \`${url}\``;
+				await respond(interaction, message);
+			} else if (!isJsonUrl(url)) {
+				const message = `That URL does not end with .json: \`${url}\``;
+				await respond(interaction, message);
+			} else {
+				let json: Object;
+				try {
+					json = await (await fetch(url)).json();
+				} catch (error: any) {
+					const message = [
+						`I couldn't load that ${url}`,
+						toJsonCodeFence(error.message),
+					].join("\n");
+					await respond(interaction, message);
+					return;
+				}
+
+				if (!isBGL(json)) {
+					const message = `Uh oh, that doesn't look like a board:\n${url}`;
+					await respond(interaction, message);
+					return;
+				}
+				const runner = await BoardRunner.fromGraphDescriptor(json);
+
+				const runConfig: RunConfig = {
+					url: ".",
+					kits: [asRuntimeKit(Core)],
+					remote: undefined,
+					proxy: undefined,
+					diagnostics: true,
+					runner: runner,
+				};
+
+				const iterator = run(runConfig);
+
+				let result = await iterator.next();
+				while (!result.done) {
+					if (result.value.type === "input") {
+						const inputAttribute = getInputSchemaFromNode(result.value.data);
+						const input = await getUserInputForSchema(inputAttribute, interaction);
+						await result.value.reply({
+							inputs: input
+						}  as InputResolveRequest);
+					} else if (result.value.type === "output") {
+						console.debug(result.value.data.node.id, "output", result.value.data.outputs);
+						respondInChannel(interaction, toJsonCodeFence(result.value.data.outputs))
+					}
+					result = await iterator.next();
+				}
 			}
 		}
 	} else {
@@ -414,8 +490,8 @@ function truncateObject(
 				truncateRecursively(
 					value,
 					currentMaxLength -
-						jsonString.length +
-						JSON.stringify(value, bigIntHandler).length,
+					jsonString.length +
+					JSON.stringify(value, bigIntHandler).length,
 					depth + 1
 				);
 			} else {
@@ -457,11 +533,57 @@ function isJsonUrl(url: string): boolean {
 	return isValidURL(url) && url.endsWith(".json");
 }
 
-function isGBL(json: any): json is GraphDescriptor {
-	const valid = typeof json == "object" && 
-					"nodes" in json &&
-					"edges" in json &&
-					Array.isArray(json.nodes) == true &&
-					Array.isArray(json.edges) == true
+function isBGL(json: any): json is GraphDescriptor {
+	const valid = typeof json == "object" &&
+		"nodes" in json &&
+		"edges" in json &&
+		Array.isArray(json.nodes) == true &&
+		Array.isArray(json.edges) == true
 	return valid
+}
+
+export function getInputSchemaFromNode(inputResponse: InputResponse): Schema {
+	return inputResponse.inputArguments.schema as Schema;
+}
+// Discord can only send a single "reply" per interaction
+// So further messages to an interaction are done as a "follow up" 
+// setting followUp to true for now, because I want include an initial response to the /run and url being sent, so follow up will be used every time
+async function getUserInputForSchema(schema: Schema, interaction: ChatInputCommandInteraction, followUp = true) {
+
+	const askQuestion = async (question: string, interaction: ChatInputCommandInteraction, followUp: boolean, timeout = 30000): Promise<string> => {
+		if (!followUp) {
+			await interaction.reply(question);
+		} else {
+			await interaction.followUp(question);
+		}
+
+		const filter = (response: Message) => {
+			return response.author.id === interaction.user.id && response.channel.id === interaction.channel?.id;;
+		};
+
+		try {
+			const collected = await interaction.channel?.awaitMessages({ filter, max: 1, time: timeout, errors: ['time'] });
+			const reply = collected?.first()?.content ?? 'No reply was received in the time limit.';
+			return reply;
+		} catch (error) {
+			return 'No reply was received in the time limit.';
+		}
+	}
+
+	async function getInputFromSchema() {
+		const userInput: { [key: string]: string } = {};
+		for (const key in schema.properties) {
+			const property = schema.properties[key];
+			if (property.type === "string") {
+				const inputAttribute = typeof property.title !== "undefined" ? property.title : key
+				const answer = await askQuestion(`Please enter the value for ${inputAttribute}: `, interaction, followUp);
+				await interaction.followUp(`Received: ${answer}`)
+				userInput[key] = answer;
+			}
+		}
+
+		return userInput;
+	}
+
+	return getInputFromSchema();
 }
